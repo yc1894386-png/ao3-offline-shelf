@@ -19,6 +19,9 @@ function sendJson(res, status, value) {
   const body = JSON.stringify(value);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, OPTIONS",
+    "access-control-allow-headers": "content-type, accept",
     "content-length": Buffer.byteLength(body)
   });
   res.end(body);
@@ -154,6 +157,15 @@ async function importSource(url) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, OPTIONS",
+        "access-control-allow-headers": "content-type, accept"
+      });
+      return res.end();
+    }
+
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname === "/api/import") {
       const source = url.searchParams.get("url");

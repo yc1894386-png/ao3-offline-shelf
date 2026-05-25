@@ -1,6 +1,7 @@
 ﻿const DB_NAME = "pocket-reading-vault";
 const DB_VERSION = 1;
 const STORE = "state";
+const IMPORT_API_BASE = "https://pocket-reading-vault.onrender.com";
 
 const $ = (selector) => document.querySelector(selector);
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
@@ -330,7 +331,7 @@ async function importFromSource(url) {
   const status = $("#importStatus");
   status.textContent = "正在读取原站……";
   try {
-    const response = await fetch(`./api/import?url=${encodeURIComponent(url)}`, {
+    const response = await fetch(`${IMPORT_API_BASE}/api/import?url=${encodeURIComponent(url)}`, {
       headers: { accept: "application/json" }
     });
     const contentType = response.headers.get("content-type") || "";
