@@ -23,6 +23,7 @@ let db;
 let noteTimer;
 let progressTimer;
 let pendingJump = null;
+let controlsOpen = false;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -162,7 +163,7 @@ function renderReader() {
   const work = activeWork();
   $("#emptyState").classList.toggle("hidden", Boolean(work));
   $("#reader").classList.toggle("hidden", !work);
-  $("#readingBar").classList.toggle("hidden", !work);
+  $("#readingBar").classList.toggle("hidden", !work || !controlsOpen);
   document.body.classList.toggle("reading", Boolean(work));
 
   if (!work) return;
@@ -395,6 +396,10 @@ function parseWorkHtml(html, sourceUrl = "") {
 function chapterScrollRatio() {
   const content = $("#workContent");
   if (!content || content.classList.contains("hidden")) return 0;
+  if (isPagedMode()) {
+    const max = Math.max(1, content.scrollWidth - content.clientWidth);
+    return Math.max(0, Math.min(1, content.scrollLeft / max));
+  }
   const rect = content.getBoundingClientRect();
   const start = window.scrollY + rect.top;
   const max = Math.max(1, content.scrollHeight - window.innerHeight + 120);
@@ -403,11 +408,40 @@ function chapterScrollRatio() {
 
 function scrollToChapterRatio(ratio) {
   const content = $("#workContent");
+  if (isPagedMode()) {
+    const max = Math.max(1, content.scrollWidth - content.clientWidth);
+    content.scrollTo({ left: max * ratio, behavior: "auto" });
+    updateProgressBar();
+    return;
+  }
   const rect = content.getBoundingClientRect();
   const start = window.scrollY + rect.top;
   const max = Math.max(1, content.scrollHeight - window.innerHeight + 120);
   window.scrollTo({ top: start + max * ratio, behavior: "auto" });
   updateProgressBar();
+}
+
+function isPagedMode() {
+  return window.matchMedia("(max-width: 879px)").matches;
+}
+
+function pageStepRatio() {
+  const content = $("#workContent");
+  const max = Math.max(1, content.scrollWidth - content.clientWidth);
+  return Math.max(0.02, content.clientWidth / max);
+}
+
+function turnPage(delta) {
+  const work = activeWork();
+  if (!work || !isPagedMode()) return;
+  const next = Math.max(0, Math.min(1, chapterScrollRatio() + pageStepRatio() * delta));
+  scrollToChapterRatio(next);
+  persistProgress();
+}
+
+function setControlsOpen(open) {
+  controlsOpen = open;
+  $("#readingBar").classList.toggle("hidden", !activeWork() || !controlsOpen);
 }
 
 function updateProgressBar() {
@@ -644,6 +678,21 @@ $("#progressRange").addEventListener("input", (event) => {
 });
 
 $("#progressRange").addEventListener("change", persistProgress);
+
+$("#workContent").addEventListener("click", (event) => {
+  if (!activeWork()) return;
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) return;
+  if (!isPagedMode()) {
+    setControlsOpen(!controlsOpen);
+    return;
+  }
+  const rect = $("#workContent").getBoundingClientRect();
+  const x = (event.clientX - rect.left) / Math.max(1, rect.width);
+  if (x < 0.34) turnPage(-1);
+  else if (x > 0.66) turnPage(1);
+  else setControlsOpen(!controlsOpen);
+});
 
 window.addEventListener("scroll", () => {
   if (!activeWork()) return;

@@ -687,8 +687,19 @@ dialog::backdrop {
   }
 
   .work-content {
-    padding-right: 3px;
-    padding-left: 3px;
+    height: calc(100vh - 250px);
+    min-height: 430px;
+    overflow: hidden;
+    column-width: calc(100vw - 46px);
+    column-gap: 34px;
+    padding: 10px 4px 20px;
+    touch-action: manipulation;
+    user-select: text;
+    scroll-behavior: smooth;
+  }
+
+  .work-content > * {
+    break-inside: avoid;
   }
 
   .reading-bar {
@@ -696,6 +707,10 @@ dialog::backdrop {
     left: 8px;
     grid-template-columns: auto minmax(0, 1fr) 40px auto;
     padding: 8px;
+  }
+
+  .reading-bar.hidden {
+    display: none !important;
   }
 
   body.reading .library-panel {
