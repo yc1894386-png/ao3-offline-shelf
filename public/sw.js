@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = "pocket-reading-vault-v9";
+﻿const CACHE_NAME = "pocket-reading-vault-v11";
 const ASSETS = [
   "./",
   "./index.html",
@@ -32,4 +32,5 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request))
   );
 });
+
 

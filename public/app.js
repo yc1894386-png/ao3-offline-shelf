@@ -2,6 +2,8 @@
 const DB_VERSION = 1;
 const STORE = "state";
 const IMPORT_API_BASE = "https://pocket-reading-vault.onrender.com";
+const SUPABASE_URL = "https://bhliywysdezcykoyyozw.supabase.co";
+const SUPABASE_KEY = "sb_publishable_hh04jm0Nqp3_Jq-3FTcs5w_FbuaSO0v";
 
 const $ = (selector) => document.querySelector(selector);
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
@@ -22,8 +24,12 @@ let state = structuredClone(defaultState);
 let db;
 let noteTimer;
 let progressTimer;
+let cloudTimer;
 let pendingJump = null;
 let controlsOpen = false;
+let cloudSession = null;
+let syncingCloud = false;
+let supabase;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -53,7 +59,9 @@ function dbSet(key, value) {
 }
 
 async function saveState() {
+  state.updatedAt = new Date().toISOString();
   await dbSet("library", state);
+  queueCloudSave();
 }
 
 function escapeHtml(value = "") {
@@ -308,6 +316,122 @@ async function importLibraryFile(file) {
   renderAll();
 }
 
+function setCloudStatus(message) {
+  const node = $("#cloudStatus");
+  if (node) node.textContent = message;
+}
+
+function renderCloudPanel() {
+  const signedIn = Boolean(cloudSession?.user);
+  $("#cloudEmail").disabled = signedIn;
+  $("#cloudLoginButton").classList.toggle("hidden", signedIn);
+  $("#cloudLogoutButton").classList.toggle("hidden", !signedIn);
+  $("#cloudUploadButton").disabled = !signedIn;
+  $("#cloudDownloadButton").disabled = !signedIn;
+  $("#cloudUser").textContent = signedIn ? `已登录：${cloudSession.user.email}` : "未登录云端";
+}
+
+function cloneLibraryState(value) {
+  return structuredClone({
+    ...defaultState,
+    ...value,
+    folders: value?.folders || defaultState.folders,
+    works: (value?.works || []).map(normalizeWork)
+  });
+}
+
+function mergeLibraryState(localState, cloudState) {
+  const merged = cloneLibraryState(localState);
+  const folderMap = new Map((merged.folders || []).map((folder) => [folder.id, folder]));
+  for (const folder of cloudState.folders || []) folderMap.set(folder.id, folder);
+  merged.folders = [...folderMap.values()];
+  if (!merged.folders.some((folder) => folder.id === "all")) merged.folders.unshift(defaultState.folders[0]);
+  if (!merged.folders.some((folder) => folder.id === "unfiled")) merged.folders.push(defaultState.folders[1]);
+
+  const workMap = new Map((merged.works || []).map((work) => [work.id, normalizeWork(work)]));
+  for (const cloudWork of cloudState.works || []) {
+    const existing = workMap.get(cloudWork.id);
+    if (!existing) {
+      workMap.set(cloudWork.id, normalizeWork(cloudWork));
+      continue;
+    }
+    const localTime = new Date(existing.updatedAt || existing.importedAt || 0).getTime();
+    const cloudTime = new Date(cloudWork.updatedAt || cloudWork.importedAt || 0).getTime();
+    workMap.set(cloudWork.id, normalizeWork(cloudTime > localTime ? cloudWork : existing));
+  }
+  merged.works = [...workMap.values()];
+  merged.readerFontSize = localState.readerFontSize || cloudState.readerFontSize || defaultState.readerFontSize;
+  merged.theme = localState.theme || cloudState.theme || defaultState.theme;
+  merged.updatedAt = new Date().toISOString();
+  return merged;
+}
+
+async function getCloudState() {
+  if (!cloudSession?.user) return null;
+  const { data, error } = await supabase
+    .from("library_states")
+    .select("state, updated_at")
+    .eq("user_id", cloudSession.user.id)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.state ? cloneLibraryState(data.state) : null;
+}
+
+async function saveCloudNow({ silent = false } = {}) {
+  if (!cloudSession?.user || syncingCloud) return;
+  syncingCloud = true;
+  if (!silent) setCloudStatus("正在上传云端……");
+  try {
+    const payload = cloneLibraryState(state);
+    const { error } = await supabase.from("library_states").upsert({
+      user_id: cloudSession.user.id,
+      state: payload,
+      updated_at: new Date().toISOString()
+    });
+    if (error) throw error;
+    setCloudStatus(`云端已保存：${new Date().toLocaleTimeString()}`);
+  } catch (error) {
+    setCloudStatus(`云端保存失败：${error.message}`);
+  } finally {
+    syncingCloud = false;
+  }
+}
+
+function queueCloudSave() {
+  if (!cloudSession?.user || syncingCloud) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => saveCloudNow({ silent: true }), 1200);
+}
+
+async function loadCloudIntoLocal({ merge = true } = {}) {
+  if (!cloudSession?.user) return;
+  setCloudStatus("正在读取云端书架……");
+  const cloudState = await getCloudState();
+  if (!cloudState) {
+    await saveCloudNow();
+    return;
+  }
+  syncingCloud = true;
+  state = merge ? mergeLibraryState(state, cloudState) : cloneLibraryState(cloudState);
+  await dbSet("library", state);
+  syncingCloud = false;
+  renderAll();
+  setCloudStatus(merge ? "已合并云端书架。" : "已下载云端书架。");
+  if (merge) await saveCloudNow({ silent: true });
+}
+
+async function refreshCloudSession({ initial = false } = {}) {
+  const { data } = await supabase.auth.getSession();
+  cloudSession = data.session;
+  renderCloudPanel();
+  if (cloudSession?.user) {
+    setCloudStatus("云端已连接。");
+    if (initial) await loadCloudIntoLocal({ merge: true });
+  } else {
+    setCloudStatus("登录后可同步手机和电脑。");
+  }
+}
+
 async function addWork(work) {
   const existing = state.works.find((item) => item.sourceUrl && item.sourceUrl === work.sourceUrl);
   if (existing && !confirm("这个链接已经在书架里了，要重新保存并覆盖正文吗？")) return;
@@ -320,7 +444,8 @@ async function addWork(work) {
     highlights: existing?.highlights || [],
     reading: existing?.reading || { chapterIndex: 0, ratio: 0 },
     ...work,
-    importedAt: new Date().toISOString()
+    importedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   });
   state.works = existing ? state.works.map((item) => item.id === existing.id ? next : item) : [next, ...state.works];
   state.selectedWorkId = next.id;
@@ -457,6 +582,7 @@ async function persistProgress() {
   if (!work) return;
   normalizeWork(work);
   work.reading.ratio = chapterScrollRatio();
+  work.updatedAt = new Date().toISOString();
   await saveState();
   updateProgressBar();
 }
@@ -467,6 +593,7 @@ function changeChapter(delta) {
   const chapters = getChapters(work);
   work.reading.chapterIndex = Math.max(0, Math.min(currentChapterIndex(work, chapters) + delta, chapters.length - 1));
   work.reading.ratio = 0;
+  work.updatedAt = new Date().toISOString();
   pendingJump = 0;
   saveState().then(renderAll);
 }
@@ -477,6 +604,7 @@ function goToChapter(index, ratio = 0) {
   const chapters = getChapters(work);
   work.reading.chapterIndex = Math.max(0, Math.min(index, chapters.length - 1));
   work.reading.ratio = ratio;
+  work.updatedAt = new Date().toISOString();
   pendingJump = ratio;
   saveState().then(renderAll);
 }
@@ -496,6 +624,7 @@ async function addBookmark() {
     createdAt: new Date().toISOString()
   });
   work.reading.ratio = ratio;
+  work.updatedAt = new Date().toISOString();
   await saveState();
   updateProgressBar();
 }
@@ -538,18 +667,28 @@ async function addHighlightFromSelection() {
   normalizeWork(work);
   const chapterIndex = currentChapterIndex(work);
   work.highlights.push({ id: uid(), chapterIndex, text, createdAt: new Date().toISOString() });
+  work.updatedAt = new Date().toISOString();
   selection.removeAllRanges();
   await saveState();
   renderReader();
 }
 
 async function boot() {
+  const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
   db = await openDb();
   state = { ...defaultState, ...(await dbGet("library") || {}) };
   state.works = (state.works || []).map(normalizeWork);
   if (!state.folders.some((folder) => folder.id === "all")) state.folders.unshift(defaultState.folders[0]);
   if (!state.folders.some((folder) => folder.id === "unfiled")) state.folders.push(defaultState.folders[1]);
   renderAll();
+  await refreshCloudSession({ initial: true });
+  supabase.auth.onAuthStateChange(async (_event, session) => {
+    cloudSession = session;
+    renderCloudPanel();
+    if (session?.user) await loadCloudIntoLocal({ merge: true });
+    else setCloudStatus("已退出云端。");
+  });
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
@@ -563,6 +702,38 @@ $("#importForm").addEventListener("submit", async (event) => {
     await importFromSource(url);
   } catch (error) {
     $("#importStatus").textContent = error.message;
+  }
+});
+
+$("#cloudLoginButton").addEventListener("click", async () => {
+  const email = $("#cloudEmail").value.trim();
+  if (!email) {
+    setCloudStatus("先输入邮箱。");
+    return;
+  }
+  setCloudStatus("正在发送登录邮件……");
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: location.href.split("#")[0] }
+  });
+  setCloudStatus(error ? `发送失败：${error.message}` : "登录邮件已发送，打开邮件里的链接即可同步。");
+});
+
+$("#cloudLogoutButton").addEventListener("click", async () => {
+  await supabase.auth.signOut();
+  cloudSession = null;
+  renderCloudPanel();
+  setCloudStatus("已退出云端。");
+});
+
+$("#cloudUploadButton").addEventListener("click", () => saveCloudNow());
+
+$("#cloudDownloadButton").addEventListener("click", async () => {
+  if (!confirm("用云端书架合并到本机？本机已有作品不会被直接清空。")) return;
+  try {
+    await loadCloudIntoLocal({ merge: true });
+  } catch (error) {
+    setCloudStatus(`云端读取失败：${error.message}`);
   }
 });
 
@@ -617,6 +788,7 @@ $("#metaForm").addEventListener("submit", async (event) => {
   if (!work) return;
   work.folderId = $("#metaFolder").value;
   work.customTags = $("#metaCustomTags").value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean);
+  work.updatedAt = new Date().toISOString();
   await saveState();
   $("#metaDialog").close();
   renderAll();
@@ -628,6 +800,7 @@ $("#noteInput").addEventListener("input", () => {
     const work = activeWork();
     if (!work) return;
     work.note = $("#noteInput").value;
+    work.updatedAt = new Date().toISOString();
     await saveState();
     renderWorks();
   }, 250);

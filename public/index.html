@@ -7,7 +7,7 @@
     <title>离线书架</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=9-soft-ui-20260526" />
+    <link rel="stylesheet" href="./styles.css?v=11-cloud-sync-20260526" />
   </head>
   <body>
     <div class="app-shell">
@@ -42,6 +42,25 @@
               <button class="tiny-button" id="newFolderButton" title="新建文件夹" aria-label="新建文件夹">＋</button>
             </div>
             <div class="folder-list" id="folderList"></div>
+          </section>
+
+          <section class="sync-tools">
+            <div class="section-title">
+              <h2>云端同步</h2>
+            </div>
+            <div class="cloud-box">
+              <p class="helper-text" id="cloudUser">未登录云端</p>
+              <input id="cloudEmail" type="email" placeholder="邮箱" autocomplete="email" />
+              <div class="cloud-actions">
+                <button class="ghost-button" type="button" id="cloudLoginButton">登录 / 发送邮件</button>
+                <button class="ghost-button hidden" type="button" id="cloudLogoutButton">退出</button>
+              </div>
+              <div class="backup-actions">
+                <button class="ghost-button" type="button" id="cloudUploadButton" disabled>上传云端</button>
+                <button class="ghost-button" type="button" id="cloudDownloadButton" disabled>下载云端</button>
+              </div>
+              <p class="status" id="cloudStatus">登录后可同步手机和电脑。</p>
+            </div>
           </section>
 
           <section class="sync-tools">
@@ -176,6 +195,6 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=9-soft-ui-20260526" type="module"></script>
+    <script src="./app.js?v=11-cloud-sync-20260526" type="module"></script>
   </body>
 </html>
