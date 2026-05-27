@@ -7,7 +7,7 @@
     <title>离线书架</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=15-reader-controls-20260527" />
+    <link rel="stylesheet" href="./styles.css?v=16-reader-toolbar-20260527" />
   </head>
   <body>
     <div class="app-shell">
@@ -145,17 +145,32 @@
 
     <div class="reader-console hidden" id="readerConsole">
       <div class="reader-console-top">
-        <button class="console-text-button" id="consoleBackButton" type="button">← 扉页</button>
+        <button class="console-text-button" id="consoleBackButton" type="button">← 返回</button>
       </div>
       <div class="reader-console-bottom">
-        <button class="console-icon-button" id="consoleSettingsButton" type="button">A_A</button>
-        <button class="console-icon-button" id="consoleLibraryButton" type="button">☰</button>
+        <div class="console-progress-row">
+          <button class="console-text-button chapter-jump" id="consolePrevChapter" type="button">上一章</button>
+          <input id="consoleProgress" type="range" min="0" max="1000" value="0" />
+          <button class="console-text-button chapter-jump" id="consoleNextChapter" type="button">下一章</button>
+        </div>
+        <div class="console-action-row">
+          <button class="console-icon-button" id="consoleLibraryButton" type="button">目录</button>
+          <button class="console-icon-button" id="consoleSettingsButton" type="button">设置</button>
+          <button class="console-icon-button" id="consoleBackgroundButton" type="button">背景</button>
+        </div>
       </div>
     </div>
 
     <dialog id="readerSettingsDialog">
       <form method="dialog" class="dialog-card compact-settings">
         <h2>阅读设置</h2>
+        <label for="settingsTurnMode">翻页方式</label>
+        <select id="settingsTurnMode">
+          <option value="tap">点击翻页</option>
+          <option value="swipe">滑动翻页</option>
+          <option value="both">点击 + 滑动</option>
+          <option value="scroll">连续滚动</option>
+        </select>
         <label for="settingsFontSize">字号</label>
         <input id="settingsFontSize" type="range" min="15" max="28" value="18" />
         <label for="settingsLineHeight">行间距</label>
@@ -163,6 +178,22 @@
         <label for="settingsSideMargin">左右页边距</label>
         <input id="settingsSideMargin" type="range" min="24" max="52" value="34" />
         <button class="ghost-button" id="settingsNightButton" type="button">夜间模式</button>
+        <menu>
+          <button value="close">完成</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="backgroundDialog">
+      <form method="dialog" class="dialog-card compact-settings">
+        <h2>背景</h2>
+        <div class="background-grid">
+          <button class="bg-choice" type="button" data-bg="white">白色</button>
+          <button class="bg-choice" type="button" data-bg="paper">纸色</button>
+          <button class="bg-choice" type="button" data-bg="green">护眼</button>
+          <button class="bg-choice" type="button" data-bg="gray">灰色</button>
+          <button class="bg-choice" type="button" data-bg="dark">夜间</button>
+        </div>
         <menu>
           <button value="close">完成</button>
         </menu>
@@ -230,6 +261,6 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=15-reader-controls-20260527" type="module"></script>
+    <script src="./app.js?v=16-reader-toolbar-20260527" type="module"></script>
   </body>
 </html>

@@ -13,6 +13,8 @@ const defaultState = {
   readerFontSize: 18,
   readerLineHeight: 1.8,
   readerSideMargin: 34,
+  readerTurnMode: "tap",
+  readerBg: "white",
   selectedFolder: "all",
   selectedWorkId: null,
   folders: [
@@ -26,6 +28,7 @@ let state = structuredClone(defaultState);
 let db;
 let noteTimer;
 let progressTimer;
+let snapTimer;
 let cloudTimer;
 let pendingJump = null;
 let controlsOpen = false;
@@ -196,6 +199,8 @@ function renderReader() {
   $("#openChapterDialog").textContent = `${index + 1}/${chapters.length}`;
   $("#prevChapter").disabled = index === 0;
   $("#nextChapter").disabled = index === chapters.length - 1;
+  $("#consolePrevChapter").hidden = index === 0;
+  $("#consoleNextChapter").hidden = index === chapters.length - 1;
 
   $("#workContent").innerHTML = chapter.html;
   $("#workContent").style.setProperty("--reader-font-size", `${state.readerFontSize || 18}px`);
@@ -276,6 +281,10 @@ function renderChapterDialog() {
 
 function renderAll() {
   document.documentElement.classList.toggle("dark", state.theme === "dark");
+  document.documentElement.classList.remove("reader-bg-white", "reader-bg-paper", "reader-bg-green", "reader-bg-gray", "reader-bg-dark");
+  document.documentElement.classList.add(`reader-bg-${state.readerBg || "white"}`);
+  document.documentElement.classList.remove("turn-tap", "turn-swipe", "turn-both", "turn-scroll");
+  document.documentElement.classList.add(`turn-${state.readerTurnMode || "tap"}`);
   document.body.classList.toggle("import-open", importDrawerOpen);
   document.body.classList.toggle("cloud-open", cloudPanelOpen);
   document.documentElement.style.setProperty("--reader-font-size", `${state.readerFontSize || 18}px`);
@@ -326,6 +335,8 @@ async function importLibraryFile(file) {
   state.readerFontSize = nextState.readerFontSize || state.readerFontSize;
   state.readerLineHeight = nextState.readerLineHeight || state.readerLineHeight;
   state.readerSideMargin = nextState.readerSideMargin || state.readerSideMargin;
+  state.readerTurnMode = nextState.readerTurnMode || state.readerTurnMode;
+  state.readerBg = nextState.readerBg || state.readerBg;
   state.theme = nextState.theme || state.theme;
   await saveState();
   renderAll();
@@ -388,6 +399,8 @@ function mergeLibraryState(localState, cloudState) {
   merged.readerFontSize = localState.readerFontSize || cloudState.readerFontSize || defaultState.readerFontSize;
   merged.readerLineHeight = localState.readerLineHeight || cloudState.readerLineHeight || defaultState.readerLineHeight;
   merged.readerSideMargin = localState.readerSideMargin || cloudState.readerSideMargin || defaultState.readerSideMargin;
+  merged.readerTurnMode = localState.readerTurnMode || cloudState.readerTurnMode || defaultState.readerTurnMode;
+  merged.readerBg = localState.readerBg || cloudState.readerBg || defaultState.readerBg;
   merged.theme = localState.theme || cloudState.theme || defaultState.theme;
   merged.updatedAt = new Date().toISOString();
   return merged;
@@ -549,6 +562,10 @@ function chapterScrollRatio() {
   const content = $("#workContent");
   if (!content || content.classList.contains("hidden")) return 0;
   if (isPagedMode()) {
+    if (state.readerTurnMode === "scroll") {
+      const maxY = Math.max(1, content.scrollHeight - content.clientHeight);
+      return Math.max(0, Math.min(1, content.scrollTop / maxY));
+    }
     const max = Math.max(1, content.scrollWidth - content.clientWidth);
     return Math.max(0, Math.min(1, content.scrollLeft / max));
   }
@@ -561,6 +578,13 @@ function chapterScrollRatio() {
 function scrollToChapterRatio(ratio) {
   const content = $("#workContent");
   if (isPagedMode()) {
+    if (state.readerTurnMode === "scroll") {
+      const maxY = Math.max(1, content.scrollHeight - content.clientHeight);
+      content.scrollTo({ top: maxY * ratio, behavior: "auto" });
+      updateProgressBar();
+      updatePageCount();
+      return;
+    }
     const max = Math.max(1, content.scrollWidth - content.clientWidth);
     content.scrollTo({ left: max * ratio, behavior: "auto" });
     updateProgressBar();
@@ -589,6 +613,20 @@ function turnPage(delta) {
   const work = activeWork();
   if (!work || !isPagedMode()) return;
   const content = $("#workContent");
+  if (state.readerTurnMode === "scroll") {
+    const maxY = Math.max(0, content.scrollHeight - content.clientHeight);
+    if (delta > 0 && content.scrollTop >= maxY - 2) {
+      changeChapter(1);
+      return;
+    }
+    if (delta < 0 && content.scrollTop <= 2) {
+      changeChapter(-1);
+      return;
+    }
+    content.scrollBy({ top: content.clientHeight * 0.86 * delta, behavior: "smooth" });
+    persistProgress();
+    return;
+  }
   const step = content.clientWidth;
   const max = Math.max(0, content.scrollWidth - content.clientWidth);
   if (delta > 0 && content.scrollLeft >= max - 2) {
@@ -610,6 +648,17 @@ function setControlsOpen(open) {
   $("#readerConsole").classList.toggle("hidden", !activeWork() || !controlsOpen);
 }
 
+function snapToNearestPage() {
+  const content = $("#workContent");
+  if (!activeWork() || !isPagedMode() || state.readerTurnMode === "scroll") return;
+  const step = Math.max(1, content.clientWidth);
+  const max = Math.max(0, content.scrollWidth - content.clientWidth);
+  const target = Math.max(0, Math.min(max, Math.round(content.scrollLeft / step) * step));
+  if (Math.abs(target - content.scrollLeft) > 2) {
+    content.scrollTo({ left: target, behavior: "smooth" });
+  }
+}
+
 function updateProgressBar() {
   const work = activeWork();
   if (!work) return;
@@ -624,6 +673,10 @@ function updatePageCount() {
   const count = $("#readerPageCount");
   if (!work || !count) return;
   const content = $("#workContent");
+  if (isPagedMode() && state.readerTurnMode === "scroll") {
+    count.textContent = `${Math.round(chapterScrollRatio() * 100)}%`;
+    return;
+  }
   const step = Math.max(1, content.clientWidth);
   const total = isPagedMode() ? Math.max(1, Math.ceil(content.scrollWidth / step)) : 1;
   const current = isPagedMode() ? Math.min(total, Math.max(1, Math.round(content.scrollLeft / step) + 1)) : 1;
@@ -747,6 +800,8 @@ async function boot() {
   state.works = (state.works || []).map(normalizeWork);
   state.readerLineHeight ||= defaultState.readerLineHeight;
   state.readerSideMargin ||= defaultState.readerSideMargin;
+  state.readerTurnMode ||= defaultState.readerTurnMode;
+  state.readerBg ||= defaultState.readerBg;
   if (!state.folders.some((folder) => folder.id === "all")) state.folders.unshift(defaultState.folders[0]);
   if (!state.folders.some((folder) => folder.id === "unfiled")) state.folders.push(defaultState.folders[1]);
   renderAll();
@@ -958,6 +1013,7 @@ $("#consoleBackButton").addEventListener("click", async () => {
 });
 
 function openSettingsDialog() {
+  $("#settingsTurnMode").value = state.readerTurnMode || "tap";
   $("#settingsFontSize").value = state.readerFontSize || 18;
   $("#settingsLineHeight").value = Math.round((state.readerLineHeight || 1.8) * 100);
   $("#settingsSideMargin").value = state.readerSideMargin || 34;
@@ -974,6 +1030,16 @@ $("#chapterSettingsButton").addEventListener("click", () => {
 });
 
 $("#consoleLibraryButton").addEventListener("click", openReaderDialog);
+$("#consoleBackgroundButton").addEventListener("click", () => $("#backgroundDialog").showModal());
+
+$("#consolePrevChapter").addEventListener("click", () => changeChapter(-1));
+$("#consoleNextChapter").addEventListener("click", () => changeChapter(1));
+
+$("#settingsTurnMode").addEventListener("change", async (event) => {
+  state.readerTurnMode = event.target.value;
+  await saveState();
+  renderAll();
+});
 
 $("#settingsFontSize").addEventListener("input", async (event) => {
   state.readerFontSize = Number(event.target.value);
@@ -994,9 +1060,19 @@ $("#settingsSideMargin").addEventListener("input", async (event) => {
 });
 
 $("#settingsNightButton").addEventListener("click", async () => {
-  state.theme = state.theme === "dark" ? "light" : "dark";
+  state.readerBg = state.readerBg === "dark" ? "white" : "dark";
+  state.theme = state.readerBg === "dark" ? "dark" : "light";
   await saveState();
   renderAll();
+});
+
+document.querySelectorAll("[data-bg]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    state.readerBg = button.dataset.bg;
+    state.theme = state.readerBg === "dark" ? "dark" : "light";
+    await saveState();
+    renderAll();
+  });
 });
 
 $("#workContent").addEventListener("click", (event) => {
@@ -1004,20 +1080,28 @@ $("#workContent").addEventListener("click", (event) => {
   const selection = window.getSelection();
   if (selection && !selection.isCollapsed) return;
   if (!isPagedMode()) {
-    openReaderDialog();
+    setControlsOpen(!controlsOpen);
     return;
   }
   const rect = $("#workContent").getBoundingClientRect();
   const x = (event.clientX - rect.left) / Math.max(1, rect.width);
+  if (x >= 0.25 && x <= 0.75) {
+    setControlsOpen(!controlsOpen);
+    return;
+  }
+  if (state.readerTurnMode === "swipe") return;
   if (x < 0.25) turnPage(-1);
   else if (x > 0.75) turnPage(1);
-  else openReaderDialog();
 });
 
 $("#workContent").addEventListener("scroll", () => {
   updateProgressBar();
   clearTimeout(progressTimer);
   progressTimer = setTimeout(persistProgress, 400);
+  clearTimeout(snapTimer);
+  if (state.readerTurnMode !== "scroll") {
+    snapTimer = setTimeout(snapToNearestPage, 160);
+  }
 }, { passive: true });
 
 window.addEventListener("scroll", () => {
