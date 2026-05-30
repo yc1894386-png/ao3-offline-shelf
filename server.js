@@ -8,6 +8,7 @@ const port = Number(process.env.PORT || 4173);
 const sourceHost = [[ "archive", "of", "our", "own" ].join(""), "org"].join(".");
 const downloadHost = `download.${sourceHost}`;
 const importCache = new Map();
+const publicBaseUrl = process.env.PUBLIC_BASE_URL || "https://pocket-reading-vault.onrender.com";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -27,6 +28,14 @@ function sendJson(res, status, value) {
     "content-length": Buffer.byteLength(body)
   });
   res.end(body);
+}
+
+function sendText(res, status, value) {
+  res.writeHead(status, {
+    "content-type": "text/plain; charset=utf-8",
+    "access-control-allow-origin": "*"
+  });
+  res.end(value);
 }
 
 function decodeEntities(value = "") {
@@ -101,6 +110,25 @@ function absoluteUrl(value, baseUrl) {
   }
 }
 
+function isProxyableImageUrl(value = "") {
+  return /^https?:\/\//i.test(value) && !/^(https?:\/\/)(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.|192\.168\.|0\.0\.0\.0)/i.test(value);
+}
+
+function proxiedImageUrl(value, baseUrl) {
+  const absolute = absoluteUrl(value, baseUrl);
+  if (!isProxyableImageUrl(absolute)) return absolute;
+  return `${publicBaseUrl}/api/image?url=${encodeURIComponent(absolute)}`;
+}
+
+function rewriteSrcset(value = "", baseUrl) {
+  return value.split(",").map((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) return "";
+    const [rawUrl, ...rest] = trimmed.split(/\s+/);
+    return [proxiedImageUrl(rawUrl, baseUrl), ...rest].join(" ");
+  }).filter(Boolean).join(", ");
+}
+
 function cleanWorkHtml(html, sourceUrl) {
   const start = html.match(/<div[^>]+id=["']chapters["'][^>]*>/i);
   let chapters = "";
@@ -117,7 +145,52 @@ function cleanWorkHtml(html, sourceUrl) {
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/\son\w+=["'][\s\S]*?["']/gi, "")
     .replace(/href=["']javascript:[\s\S]*?["']/gi, "")
-    .replace(/\b(src|href)=["']([^"']+)["']/gi, (_, name, url) => `${name}="${absoluteUrl(url, sourceUrl)}"`);
+    .replace(/<img\b([^>]*)>/gi, (tag, attrs) => {
+      const src = firstMatch(attrs, /\s(?:src|data-src|data-original|data-lazy-src)=["']([^"']+)["']/i);
+      const srcset = firstMatch(attrs, /\ssrcset=["']([^"']+)["']/i);
+      let nextAttrs = attrs
+        .replace(/\s(?:src|srcset|data-src|data-original|data-lazy-src)=["'][^"']*["']/gi, "")
+        .replace(/\sloading=["'][^"']*["']/i, "")
+        .replace(/\sdecoding=["'][^"']*["']/i, "");
+      if (src) nextAttrs += ` src="${proxiedImageUrl(src, sourceUrl)}"`;
+      if (!src && srcset) nextAttrs += ` src="${proxiedImageUrl(srcset.split(",")[0].trim().split(/\s+/)[0], sourceUrl)}"`;
+      if (srcset) nextAttrs += ` srcset="${rewriteSrcset(srcset, sourceUrl)}"`;
+      nextAttrs += ` loading="lazy" decoding="async"`;
+      return `<img${nextAttrs}>`;
+    })
+    .replace(/\bhref=["']([^"']+)["']/gi, (_, url) => `href="${absoluteUrl(url, sourceUrl)}"`);
+}
+
+async function proxyImage(targetUrl) {
+  if (!isProxyableImageUrl(targetUrl)) {
+    const error = new Error("不支持这个图片地址。");
+    error.status = 400;
+    throw error;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(targetUrl, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "referer": new URL(targetUrl).origin,
+        "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+      }
+    });
+    if (!response.ok) {
+      const error = new Error(`图片源返回了 ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    const type = response.headers.get("content-type") || "application/octet-stream";
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return { type, bytes };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function parseSourceWork(html, sourceUrl) {
@@ -297,6 +370,23 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, await importSource(source));
       } catch (error) {
         return sendJson(res, 422, { error: error.message });
+      }
+    }
+
+    if (url.pathname === "/api/image") {
+      const source = url.searchParams.get("url");
+      if (!source) return sendText(res, 400, "缺少图片地址。");
+      try {
+        const image = await proxyImage(source);
+        res.writeHead(200, {
+          "content-type": image.type,
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=604800",
+          "content-length": image.bytes.length
+        });
+        return res.end(image.bytes);
+      } catch (error) {
+        return sendText(res, error.status || 502, error.message || "图片暂时不能读取。");
       }
     }
 
