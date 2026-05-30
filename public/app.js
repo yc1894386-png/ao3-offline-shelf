@@ -69,6 +69,7 @@ let cloudRealtimeTimer = null;
 let supabase;
 let activeHighlightId = null;
 let activeSelectionText = "";
+let previewImageUrl = "";
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -159,9 +160,31 @@ function normalizeImages(root, baseUrl = "") {
     if (srcset) img.setAttribute("srcset", rewriteSrcset(srcset, baseUrl));
     img.setAttribute("loading", "lazy");
     img.setAttribute("decoding", "async");
+    img.setAttribute("draggable", "false");
     img.removeAttribute("data-src");
     img.removeAttribute("data-original");
     img.removeAttribute("data-lazy-src");
+  });
+}
+
+function prepareReaderImages() {
+  const images = [...$("#workContent").querySelectorAll("img")];
+  images.forEach((img, index) => {
+    img.classList.add("reader-image");
+    img.setAttribute("role", "button");
+    img.setAttribute("tabindex", "0");
+    img.setAttribute("title", "点开查看图片");
+    if (index < 3) {
+      img.loading = "eager";
+      img.setAttribute("fetchpriority", "high");
+    }
+  });
+  images.slice(0, 6).forEach((img) => {
+    const src = img.currentSrc || img.src;
+    if (src) {
+      const preload = new Image();
+      preload.src = src;
+    }
   });
 }
 
@@ -340,6 +363,7 @@ function renderReader() {
   $("#workContent").style.setProperty("--reader-font-family", readerFontFamilyValue());
   $("#workContent").style.setProperty("--reader-line-height", `${state.readerLineHeight || 1.8}`);
   $("#workContent").style.setProperty("--reader-side-margin", `${state.readerSideMargin || 34}px`);
+  prepareReaderImages();
   resetPageCache();
   applyHighlights(work, index);
 
@@ -1695,6 +1719,36 @@ function showHighlightToolbar(mark) {
   showSelectionToolbarFromRect(mark.getBoundingClientRect());
 }
 
+function openImagePreview(img) {
+  const src = img.currentSrc || img.src || img.getAttribute("src");
+  if (!src) return;
+  previewImageUrl = src;
+  const preview = $("#imagePreview");
+  preview.src = src;
+  preview.alt = img.alt || "预览图片";
+  $("#imagePreviewDialog").showModal();
+}
+
+async function downloadPreviewImage() {
+  if (!previewImageUrl) return;
+  try {
+    const response = await fetch(previewImageUrl);
+    const blob = await response.blob();
+    const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg").split(";")[0];
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `image-${Date.now()}.${ext}`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    const link = document.createElement("a");
+    link.href = previewImageUrl;
+    link.download = `image-${Date.now()}.jpg`;
+    link.click();
+  }
+}
+
 async function boot() {
   try {
     const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
@@ -2295,6 +2349,16 @@ document.querySelectorAll("[data-bg]").forEach((button) => {
 
 $("#workContent").addEventListener("click", (event) => {
   if (!activeWork()) return;
+  const image = event.target.closest("img");
+  if (image) {
+    event.preventDefault();
+    event.stopPropagation();
+    lastReaderActionAt = Date.now();
+    hideSelectionToolbar();
+    setControlsOpen(false);
+    openImagePreview(image);
+    return;
+  }
   const rect = $("#workContent").getBoundingClientRect();
   const x = (event.clientX - rect.left) / Math.max(1, rect.width);
   const isMenuZone = x >= 0.35 && x <= 0.65;
@@ -2379,6 +2443,12 @@ $("#selectionToolbar").addEventListener("click", async (event) => {
     if (match) await removeHighlight(match.id);
     else hideSelectionToolbar();
   }
+});
+
+$("#closeImagePreview").addEventListener("click", () => $("#imagePreviewDialog").close());
+$("#downloadPreviewImage").addEventListener("click", downloadPreviewImage);
+$("#imagePreviewDialog").addEventListener("click", (event) => {
+  if (event.target === $("#imagePreviewDialog")) $("#imagePreviewDialog").close();
 });
 
 $("#workContent").addEventListener("touchstart", (event) => {
