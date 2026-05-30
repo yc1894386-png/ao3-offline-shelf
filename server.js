@@ -7,6 +7,7 @@ const root = fileURLToPath(new URL("./public", import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const sourceHost = [[ "archive", "of", "our", "own" ].join(""), "org"].join(".");
 const downloadHost = `download.${sourceHost}`;
+const importCache = new Map();
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -225,12 +226,17 @@ async function fetchFirstAvailable(candidates) {
 
 async function importSource(url) {
   const parsed = normalizeSourceUrl(url);
+  const cacheKey = getWorkId(parsed) || parsed.toString();
+  const cached = importCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < 1000 * 60 * 60 * 12) return cached.work;
   const candidates = [{ url: parsed.toString(), label: "原站" }];
   const downloadUrl = getDownloadUrl(parsed);
   if (downloadUrl) candidates.push({ url: downloadUrl, label: "HTML 下载源" });
 
   const result = await fetchFirstAvailable(candidates);
-  return parseSourceWork(result.html, result.url);
+  const work = parseSourceWork(result.html, result.url);
+  importCache.set(cacheKey, { at: Date.now(), work });
+  return work;
 }
 
 const server = http.createServer(async (req, res) => {
