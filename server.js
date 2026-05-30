@@ -195,7 +195,7 @@ async function fetchHtml(url, label) {
 async function fetchFirstAvailable(candidates) {
   const errors = [];
   for (const candidate of candidates) {
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         return {
           html: await fetchHtml(candidate.url, candidate.label),
@@ -203,12 +203,19 @@ async function fetchFirstAvailable(candidates) {
         };
       } catch (error) {
         errors.push(error);
-        if (attempt < 2) await wait(800);
+        if (attempt < 3 && [429, 525].includes(error.status)) await wait(1200 * attempt);
+        else break;
       }
     }
   }
 
   const statuses = errors.map((error) => error.status).filter(Boolean);
+  if (statuses.includes(429)) {
+    throw new Error("原站正在限流（429），它觉得访问太频繁了。先等 5 到 10 分钟再试；如果急着保存，请在原站点 Download → HTML 后回这里导入 HTML 文件。");
+  }
+  if (statuses.includes(403)) {
+    throw new Error("原站或 HTML 下载源拒绝访问（403）。这通常是站点临时防护，不是链接错了；请稍后重试，或用 Download → HTML 文件导入。");
+  }
   if (statuses.includes(525)) {
     throw new Error("原站返回了 525，备用 HTML 下载源也没有成功。可以稍后再试，或先用原站 Download → HTML 导入。");
   }
