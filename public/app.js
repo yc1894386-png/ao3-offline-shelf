@@ -28,6 +28,7 @@ const defaultState = {
   readerBg: "white",
   selectedFolder: "all",
   selectedWorkId: null,
+  pendingImports: [],
   folders: [
     { id: "all", name: "全部" },
     { id: "unfiled", name: "未分类" }
@@ -40,6 +41,7 @@ let db;
 let noteTimer;
 let progressTimer;
 let selectionTimer;
+let pendingImportTimer;
 let snapTimer;
 let persistTimer;
 let pageCache = { key: "", step: 1, max: 0, total: 1, current: 1 };
@@ -146,6 +148,18 @@ function normalizeWork(work) {
   work.reading.ratio ||= 0;
   work.sortOrder ??= Date.parse(work.importedAt || work.updatedAt || "") || Date.now();
   return work;
+}
+
+function normalizePendingImports() {
+  state.pendingImports = (state.pendingImports || [])
+    .filter((item) => item?.url)
+    .map((item) => ({
+      url: item.url,
+      tries: Number(item.tries || 0),
+      lastError: item.lastError || "",
+      nextTryAt: item.nextTryAt || new Date().toISOString(),
+      createdAt: item.createdAt || new Date().toISOString()
+    }));
 }
 
 function getChapters(work) {
@@ -675,6 +689,7 @@ function renderCloudPanel() {
     $("#cloudEmail").disabled = true;
     $("#cloudPassword").disabled = true;
     $("#cloudLoginButton").classList.remove("hidden");
+    $("#cloudStartButton").classList.remove("hidden");
     $("#cloudPasswordLoginButton").classList.remove("hidden");
     $("#cloudSignupButton").classList.remove("hidden");
     $("#cloudSetPasswordButton").classList.add("hidden");
@@ -688,6 +703,7 @@ function renderCloudPanel() {
   }
   $("#cloudEmail").disabled = signedIn;
   $("#cloudPassword").disabled = false;
+  $("#cloudStartButton").classList.toggle("hidden", signedIn);
   $("#cloudLoginButton").classList.toggle("hidden", signedIn);
   $("#cloudPasswordLoginButton").classList.toggle("hidden", signedIn);
   $("#cloudSignupButton").classList.toggle("hidden", signedIn);
@@ -892,6 +908,7 @@ async function importFromSource(url) {
     await addWork(payload);
     status.textContent = "已经保存到本机书架。";
     $("#sourceUrl").value = "";
+    removePendingImport(url);
   } catch (error) {
     if (error.message === "STATIC_PAGE") {
       throw new Error("这个网页还没有连接到导入后端。请上传包含 Render 地址的新版 app.js。");
@@ -899,8 +916,71 @@ async function importFromSource(url) {
     if (error instanceof TypeError || /Failed to fetch|NetworkError|Load failed/i.test(error.message)) {
       throw new Error("导入后端暂时没连上。Render 第一次启动可能要等 30 秒左右；如果一直这样，请确认 Render 服务已部署并在运行。");
     }
+    if (/403|429|限流|拒绝访问/i.test(error.message)) {
+      await addPendingImport(url, error.message);
+      throw new Error("原站现在挡住了这次读取。我已把链接放进后台导入，会自动重试；你不用反复点。");
+    }
     throw error;
   }
+}
+
+async function addPendingImport(url, message = "") {
+  normalizePendingImports();
+  const existing = state.pendingImports.find((item) => item.url === url);
+  const tries = existing ? existing.tries + 1 : 1;
+  const delayMinutes = Math.min(60, Math.max(5, tries * 5));
+  const nextTryAt = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
+  const item = {
+    url,
+    tries,
+    lastError: message,
+    nextTryAt,
+    createdAt: existing?.createdAt || new Date().toISOString()
+  };
+  state.pendingImports = existing
+    ? state.pendingImports.map((pending) => pending.url === url ? item : pending)
+    : [item, ...state.pendingImports];
+  await saveState();
+  schedulePendingImports();
+}
+
+function removePendingImport(url) {
+  if (!state.pendingImports?.length) return;
+  state.pendingImports = state.pendingImports.filter((item) => item.url !== url);
+  saveState();
+}
+
+function schedulePendingImports() {
+  clearTimeout(pendingImportTimer);
+  normalizePendingImports();
+  if (!state.pendingImports.length) return;
+  const now = Date.now();
+  const next = Math.min(...state.pendingImports.map((item) => new Date(item.nextTryAt).getTime() || now));
+  pendingImportTimer = setTimeout(runPendingImports, Math.max(3000, next - now));
+}
+
+async function runPendingImports() {
+  normalizePendingImports();
+  const due = state.pendingImports.filter((item) => new Date(item.nextTryAt).getTime() <= Date.now());
+  if (!due.length) return schedulePendingImports();
+  for (const item of due.slice(0, 1)) {
+    try {
+      $("#importStatus").textContent = "正在后台重试导入……";
+      const response = await fetch(`${IMPORT_API_BASE}/api/import?url=${encodeURIComponent(item.url)}`, {
+        headers: { accept: "application/json" }
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "导入失败。");
+      await addWork(payload);
+      state.pendingImports = state.pendingImports.filter((pending) => pending.url !== item.url);
+      await saveState();
+      $("#importStatus").textContent = "后台导入成功，已经保存到书架。";
+    } catch (error) {
+      await addPendingImport(item.url, error.message);
+      $("#importStatus").textContent = "后台导入暂时没成功，会继续自动重试。";
+    }
+  }
+  schedulePendingImports();
 }
 
 function plainTextToHtml(text) {
@@ -997,6 +1077,127 @@ function parseWorkHtml(html, sourceUrl = "") {
       language: metaText(["dd.language", "dd[class*='language']"], [/^language$/i, /^语言$/])
     }
   };
+}
+
+function normalizeImportedWorkPayload(payload) {
+  if (!payload || typeof payload !== "object") throw new Error("这个采集文件格式不对。");
+  if (!payload.contentHtml) throw new Error("这个采集文件里没有正文。");
+  return {
+    title: payload.title || "未命名作品",
+    author: payload.author || "未知作者",
+    sourceUrl: payload.sourceUrl || "",
+    summaryHtml: payload.summaryHtml || "",
+    contentHtml: payload.contentHtml,
+    metadata: {
+      rating: payload.metadata?.rating || "",
+      categories: payload.metadata?.categories || [],
+      fandoms: payload.metadata?.fandoms || [],
+      warnings: payload.metadata?.warnings || [],
+      relationships: payload.metadata?.relationships || [],
+      characters: payload.metadata?.characters || [],
+      freeforms: payload.metadata?.freeforms || [],
+      words: payload.metadata?.words || `${textFromHtml(payload.contentHtml).length} 字`,
+      chapters: payload.metadata?.chapters || "",
+      status: payload.metadata?.status || "",
+      language: payload.metadata?.language || ""
+    }
+  };
+}
+
+async function parseImportedWorkFile(file) {
+  const text = await file.text();
+  const isJson = /\.json$/i.test(file.name) || /^\s*\{/.test(text);
+  if (isJson) return normalizeImportedWorkPayload(JSON.parse(text));
+  return parseWorkHtml(text);
+}
+
+function createCollectorBookmarklet() {
+  const script = `(() => {
+    const clean = (value = "") => value.replace(/\\s+/g, " ").trim();
+    const q = (selector, root = document) => root.querySelector(selector);
+    const qa = (selector, root = document) => [...root.querySelectorAll(selector)];
+    const text = (...selectors) => {
+      for (const selector of selectors) {
+        const value = clean(q(selector)?.textContent || "");
+        if (value) return value;
+      }
+      return "";
+    };
+    const ddByLabel = (patterns) => {
+      for (const dt of qa("dt")) {
+        const label = clean(dt.textContent).replace(/:$/, "");
+        if (!patterns.some((pattern) => pattern.test(label))) continue;
+        let node = dt.nextElementSibling;
+        while (node && node.tagName?.toLowerCase() !== "dd") node = node.nextElementSibling;
+        if (node) return node;
+      }
+      return null;
+    };
+    const uniq = (items) => [...new Set(items.map(clean).filter(Boolean))];
+    const tags = (selectors, labels = []) => {
+      const nodes = [];
+      for (const selector of selectors) nodes.push(...qa(selector));
+      const labeled = labels.length ? ddByLabel(labels) : null;
+      if (labeled) nodes.push(labeled);
+      const values = [];
+      for (const node of nodes) {
+        const linked = qa("a, li", node).map((item) => clean(item.textContent)).filter(Boolean);
+        values.push(...(linked.length ? linked : clean(node.textContent).split(/,\\s*/)));
+      }
+      return uniq(values);
+    };
+    const metaText = (selectors, labels = []) => {
+      const direct = text(...selectors);
+      if (direct) return direct;
+      return clean(ddByLabel(labels)?.textContent || "");
+    };
+    let chapters = q("#chapters, .chapters, #workskin, main") || qa(".userstuff").sort((a, b) => clean(b.textContent).length - clean(a.textContent).length)[0];
+    if (!chapters) return alert("没有找到正文，请确认在作品全文页。");
+    chapters = chapters.cloneNode(true);
+    qa("script, style, form", chapters).forEach((node) => node.remove());
+    qa("img", chapters).forEach((img) => {
+      const src = img.getAttribute("src");
+      if (src) img.setAttribute("src", new URL(src, location.href).href);
+    });
+    let title = text("h2.title.heading", "h1.title", "h1", "title")
+      .replace(/\\s+-\\s+Chapter\\s+\\d+[\\s\\S]*$/i, "")
+      .replace(/\\s*\\|\\s*Archive[\\s\\S]*$/i, "")
+      .replace(/\\s*-\\s*Archive of Our Own[\\s\\S]*$/i, "");
+    let author = text("h3.byline.heading", ".byline", "a[rel='author']");
+    if (!author && /\\s+-\\s+/.test(title)) {
+      const parts = title.split(/\\s+-\\s+/);
+      author = parts.pop() || "";
+      title = parts.join(" - ");
+    }
+    const payload = {
+      collectorVersion: 1,
+      title: title || "未命名作品",
+      author: author.replace(/^by\\s+/i, "") || "未知作者",
+      sourceUrl: location.href,
+      summaryHtml: q("blockquote.userstuff.summary, .summary blockquote, section.summary, #summary")?.innerHTML || "",
+      contentHtml: chapters.outerHTML,
+      metadata: {
+        rating: metaText(["dd.rating.tags", "dd[class*='rating']"], [/^rating$/i, /^分级$/]),
+        categories: tags(["dd.category.tags", "dd[class*='category']"], [/^category$/i, /^分类$/]),
+        fandoms: tags(["dd.fandom.tags", "dd[class*='fandom']"], [/^fandoms?$/i, /^原作$/]),
+        warnings: tags(["dd.warning.tags", "dd[class*='warning']"], [/^archive warnings?$/i, /^warnings?$/i, /^警告$/]),
+        relationships: tags(["dd.relationship.tags", "dd[class*='relationship']"], [/^relationships?$/i, /^关系$/i, /^CP$/i]),
+        characters: tags(["dd.character.tags", "dd[class*='character']"], [/^characters?$/i, /^角色$/]),
+        freeforms: tags(["dd.freeform.tags", "dd[class*='freeform']", "dd[class*='additional']"], [/^additional tags?$/i, /^freeforms?$/i, /^其他标签$/]),
+        words: metaText(["dd.words", "dd[class*='words']"], [/^words$/i, /^字数$/]) || clean(chapters.textContent).length + " 字",
+        chapters: metaText(["dd.chapters", "dd[class*='chapters']"], [/^chapters$/i, /^章节$/]),
+        status: metaText(["dd.status", "dd[class*='status']"], [/^status$/i, /^状态$/]),
+        language: metaText(["dd.language", "dd[class*='language']"], [/^language$/i, /^语言$/])
+      }
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (payload.title || "work").replace(/[\\\\/:*?"<>|]/g, "_").slice(0, 80) + ".reading-vault.json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  })();`;
+  return `javascript:${encodeURIComponent(script)}`;
 }
 
 function chapterScrollRatio() {
@@ -1397,10 +1598,12 @@ async function boot() {
   state.readerFontSize = Math.max(12, Math.min(32, Number(state.readerFontSize || defaultState.readerFontSize)));
   state.readerLineHeight = Math.max(1.4, Math.min(2.4, Number(state.readerLineHeight || defaultState.readerLineHeight)));
   state.readerSideMargin = Math.max(12, Math.min(32, Number(state.readerSideMargin || defaultState.readerSideMargin)));
+  normalizePendingImports();
   if (!state.folders.some((folder) => folder.id === "all")) state.folders.unshift(defaultState.folders[0]);
   if (!state.folders.some((folder) => folder.id === "unfiled")) state.folders.push(defaultState.folders[1]);
   if (state.selectedFolder === "unfiled") state.selectedFolder = "all";
   renderAll();
+  schedulePendingImports();
   if (supabase) {
     await refreshCloudSession({ initial: true });
     supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -1499,6 +1702,35 @@ function cloudErrorText(error) {
   }
   return message;
 }
+
+$("#cloudStartButton").addEventListener("click", async () => {
+  if (!supabase) {
+    setCloudStatus("云端模块暂时没加载成功，先用本机导入和阅读。");
+    return;
+  }
+  const credentials = cloudCredentials();
+  if (!credentials) return;
+  setCloudStatus("正在开启同步……");
+  let { data, error } = await supabase.auth.signInWithPassword(credentials);
+  if (!error && data.session) {
+    await finishCloudSignIn(data.session, "同步已开启。以后这台设备会自动保存到云端。");
+    return;
+  }
+  if (/invalid login credentials/i.test(error?.message || "")) {
+    const signup = await supabase.auth.signUp(credentials);
+    if (signup.error) {
+      setCloudStatus(`开启失败：${cloudErrorText(signup.error)}`);
+      return;
+    }
+    if (signup.data.session) {
+      await finishCloudSignIn(signup.data.session, "同步已开启。以后这台设备会自动保存到云端。");
+    } else {
+      setCloudStatus("已创建账号。请确认邮件后回到这里，再点一次「开启同步」。");
+    }
+    return;
+  }
+  setCloudStatus(`开启失败：${cloudErrorText(error)}`);
+});
 
 $("#cloudPasswordLoginButton").addEventListener("click", async () => {
   if (!supabase) {
@@ -2131,14 +2363,23 @@ $("#manualOpen").addEventListener("click", () => {
   $("#manualDialog").showModal();
 });
 
+$("#copyCollectorButton").addEventListener("click", async () => {
+  const code = createCollectorBookmarklet();
+  try {
+    await navigator.clipboard.writeText(code);
+    $("#importStatus").textContent = "采集助手已复制。把它存成浏览器书签，在原站作品页点这个书签，会下载可导入文件。";
+  } catch {
+    $("#importStatus").textContent = "复制失败。请换电脑浏览器操作，或继续用 Download → HTML 导入。";
+  }
+});
+
 $("#htmlFileInput").addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    $("#importStatus").textContent = "正在读取 HTML 文件……";
-    const html = await file.text();
-    await addWork(parseWorkHtml(html));
-    $("#importStatus").textContent = "已经从 HTML 文件保存到书架。";
+    $("#importStatus").textContent = "正在读取导入文件……";
+    await addWork(await parseImportedWorkFile(file));
+    $("#importStatus").textContent = "已经保存到书架。";
   } catch (error) {
     $("#importStatus").textContent = error.message;
   } finally {

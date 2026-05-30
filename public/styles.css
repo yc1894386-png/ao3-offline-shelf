@@ -374,7 +374,7 @@ body.cloud-open .cloud-section {
 
 .cloud-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
   margin-top: 10px;
 }
@@ -389,7 +389,6 @@ body.cloud-open .cloud-section {
 }
 
 .subtle-cloud-action {
-  grid-column: 1 / -1;
   color: var(--muted);
 }
 
@@ -823,7 +822,7 @@ body.cloud-open .cloud-section {
   bottom: max(14px, env(safe-area-inset-bottom));
   right: max(14px, env(safe-area-inset-right));
   left: auto;
-  width: min(68vw, 360px);
+  width: min(64vw, 330px);
   transform: none;
   display: grid;
   gap: 8px;
@@ -833,7 +832,7 @@ body.cloud-open .cloud-section {
 
 .console-progress-row {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  grid-template-columns: 1fr;
   align-items: center;
   gap: 6px;
 }
@@ -855,8 +854,8 @@ body.cloud-open .cloud-section {
 
 .console-action-row {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 7px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .console-text-button,
@@ -874,10 +873,12 @@ body.cloud-open .cloud-section {
 
 .console-icon-button {
   display: flex;
+  flex-direction: column;
   justify-content: space-between;
   align-items: center;
   min-width: 38px;
-  min-height: 48px;
+  min-height: 58px;
+  padding: 9px 6px 7px;
   text-align: left;
   background: color-mix(in srgb, var(--paper) 78%, transparent);
   border-radius: 20px;
@@ -888,6 +889,11 @@ body.cloud-open .cloud-section {
   color: var(--text);
   font-size: 1.12rem;
   font-weight: 700;
+}
+
+.console-icon-button span {
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 
 .console-main-pill b {
