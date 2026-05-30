@@ -332,6 +332,11 @@ body.cloud-open .cloud-section {
   background: var(--soft);
 }
 
+.cloud-box input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .cloud-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -340,6 +345,16 @@ body.cloud-open .cloud-section {
 
 .cloud-actions .hidden {
   display: none;
+}
+
+.primary-cloud-action {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.subtle-cloud-action {
+  grid-column: 1 / -1;
+  color: var(--muted);
 }
 
 .file-import input {

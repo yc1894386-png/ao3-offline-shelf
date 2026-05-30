@@ -825,7 +825,7 @@ async function refreshCloudSession({ initial = false } = {}) {
     if (initial) await loadCloudIntoLocal({ merge: true });
   } else {
     stopCloudRealtime();
-    setCloudStatus("登录后可同步手机和电脑。");
+    setCloudStatus("用邮箱和密码登录后，会自动同步手机和电脑。");
   }
 }
 
@@ -1244,7 +1244,7 @@ async function boot() {
         await loadCloudIntoLocal({ merge: true });
       } else {
         stopCloudRealtime();
-        setCloudStatus("已退出云端。");
+        setCloudStatus("已退出云端。可以用邮箱和密码重新登录。");
       }
     });
   } else {
@@ -1375,7 +1375,7 @@ $("#cloudLogoutButton").addEventListener("click", async () => {
   await supabase.auth.signOut();
   cloudSession = null;
   renderCloudPanel();
-  setCloudStatus("已退出云端。");
+  setCloudStatus("已退出云端。可以用邮箱和密码重新登录。");
 });
 
 $("#cloudUploadButton").addEventListener("click", () => saveCloudNow());
