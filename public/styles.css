@@ -15,6 +15,7 @@
   --reader-ink: #333333;
   --shadow: 0 18px 42px rgba(0, 0, 0, 0.055);
   --reader-font-size: 18px;
+  --reader-font-family: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, serif;
   --reader-line-height: 1.8;
   --reader-side-margin: 34px;
 }
@@ -671,13 +672,16 @@ body.cloud-open .cloud-section {
 }
 
 .work-content {
-  font-family: "Songti SC", "SimSun", "Noto Serif CJK SC", Georgia, serif;
+  box-sizing: border-box;
+  max-width: 100%;
+  font-family: var(--reader-font-family);
   font-size: var(--reader-font-size);
   line-height: var(--reader-line-height);
   padding: 6px 2px 22px;
   color: var(--reader-ink);
   text-align: justify;
   text-justify: inter-ideograph;
+  overflow-wrap: break-word;
 }
 
 .work-content img {
@@ -690,7 +694,7 @@ body.cloud-open .cloud-section {
 
 .work-content h3,
 .work-content h4 {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: inherit;
   line-height: 1.35;
 }
 
@@ -822,10 +826,10 @@ body.cloud-open .cloud-section {
   bottom: max(14px, env(safe-area-inset-bottom));
   right: max(14px, env(safe-area-inset-right));
   left: auto;
-  width: min(64vw, 330px);
+  width: min(66vw, 300px);
   transform: none;
   display: grid;
-  gap: 8px;
+  gap: 7px;
   padding: 0;
   background: transparent;
 }
@@ -841,10 +845,10 @@ body.cloud-open .cloud-section {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 52px;
-  padding: 0 16px;
+  min-height: 48px;
+  padding: 0 15px;
   border: 0;
-  border-radius: 28px;
+  border-radius: 24px;
   background: color-mix(in srgb, #111 90%, transparent);
   color: #fff;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
@@ -854,8 +858,8 @@ body.cloud-open .cloud-section {
 
 .console-action-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: 1fr;
+  gap: 7px;
 }
 
 .console-text-button,
@@ -873,16 +877,16 @@ body.cloud-open .cloud-section {
 
 .console-icon-button {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   justify-content: space-between;
   align-items: center;
-  min-width: 38px;
-  min-height: 58px;
-  padding: 9px 6px 7px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 14px;
   text-align: left;
-  background: color-mix(in srgb, var(--paper) 78%, transparent);
-  border-radius: 20px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.12);
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  border-radius: 22px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.11);
 }
 
 .console-icon-button b {
@@ -892,7 +896,10 @@ body.cloud-open .cloud-section {
 }
 
 .console-icon-button span {
-  font-size: 0.78rem;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1353,10 +1360,12 @@ dialog::backdrop {
   }
 
   .work-content {
+    box-sizing: border-box;
     width: 100vw;
+    max-width: 100vw;
     height: 100dvh;
     min-height: 0;
-    overflow-x: auto;
+    overflow-x: hidden;
     overflow-y: hidden;
     column-width: calc(100vw - (var(--reader-side-margin) * 2));
     column-gap: calc(var(--reader-side-margin) * 2);
@@ -1366,6 +1375,7 @@ dialog::backdrop {
     scroll-behavior: auto;
     scrollbar-width: none;
     background: var(--reader-bg);
+    overscroll-behavior: contain;
   }
 
   :root.turn-swipe .work-content,
@@ -1410,12 +1420,13 @@ dialog::backdrop {
   }
 
   #chapterDialog {
-    width: min(94vw, 520px);
+    width: calc(100vw - 24px);
     max-width: none;
-    height: min(82dvh, 720px);
+    height: min(78dvh, 690px);
     max-height: none;
     margin: auto auto max(10px, env(safe-area-inset-bottom));
     border-radius: 24px 24px 0 0;
+    overflow: hidden;
   }
 
   #chapterDialog::backdrop {
@@ -1431,9 +1442,52 @@ dialog::backdrop {
   }
 
   .chapter-dialog-card {
-    max-height: min(82dvh, 720px);
-    height: min(82dvh, 720px);
+    max-height: min(78dvh, 690px);
+    height: min(78dvh, 690px);
     padding-bottom: max(18px, env(safe-area-inset-bottom));
+    overflow-x: hidden;
+  }
+
+  .dialog-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .dialog-actions {
+    justify-content: start;
+  }
+
+  .chapter-work-info {
+    overflow-x: hidden;
+  }
+
+  .chapter-work-info .tag,
+  .tag-row .tag {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .note-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .note-row .note-jump {
+    min-width: 0;
+  }
+
+  .bookmark-list .reader-highlight {
+    display: inline;
+    font-size: 1rem;
+    line-height: 1.55;
+  }
+
+  .note-row .mini-delete {
+    justify-self: start;
+    min-height: 36px;
+    padding: 0 14px;
   }
 
   body.reading .library-panel {
@@ -1830,6 +1884,56 @@ body.shelf-dragging {
 
 .background-grid {
   grid-template-columns: repeat(5, 1fr);
+}
+
+.font-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 16px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.font-choice-grid button {
+  display: grid;
+  gap: 3px;
+  min-height: 78px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  color: var(--text);
+}
+
+.font-choice-grid button.active {
+  border-color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--text);
+}
+
+.font-choice-grid b {
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.font-choice-grid span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.font-choice-grid [data-font-family="serif"] {
+  font-family: "Songti SC", "STSong", "SimSun", serif;
+}
+
+.font-choice-grid [data-font-family="system"] {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.font-choice-grid [data-font-family="kaiti"] {
+  font-family: "Kaiti SC", "STKaiti", "KaiTi", serif;
+}
+
+.font-choice-grid [data-font-family="wenkai"] {
+  font-family: "LXGW WenKai", "霞鹜文楷", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 .bg-choice {

@@ -22,6 +22,7 @@ const CLIENT_ID = (() => {
 const defaultState = {
   theme: "light",
   readerFontSize: 18,
+  readerFontFamily: "serif",
   readerLineHeight: 1.8,
   readerSideMargin: 20,
   readerTurnMode: "tap",
@@ -287,6 +288,7 @@ function renderReader() {
 
   $("#workContent").innerHTML = chapter.html;
   $("#workContent").style.setProperty("--reader-font-size", `${state.readerFontSize || 18}px`);
+  $("#workContent").style.setProperty("--reader-font-family", readerFontFamilyValue());
   $("#workContent").style.setProperty("--reader-line-height", `${state.readerLineHeight || 1.8}`);
   $("#workContent").style.setProperty("--reader-side-margin", `${state.readerSideMargin || 34}px`);
   resetPageCache();
@@ -420,6 +422,7 @@ function renderAll() {
   document.body.classList.toggle("import-open", importDrawerOpen);
   document.body.classList.toggle("cloud-open", cloudPanelOpen);
   document.documentElement.style.setProperty("--reader-font-size", `${state.readerFontSize || 18}px`);
+  document.documentElement.style.setProperty("--reader-font-family", readerFontFamilyValue());
   document.documentElement.style.setProperty("--reader-line-height", `${state.readerLineHeight || 1.8}`);
   document.documentElement.style.setProperty("--reader-side-margin", `${state.readerSideMargin || 34}px`);
   renderFolders();
@@ -427,7 +430,18 @@ function renderAll() {
   renderReader();
   renderMetaOptions();
   renderSettingsLabels();
+  renderFontChoices();
   renderBackgroundChoices();
+}
+
+function readerFontFamilyValue() {
+  const map = {
+    serif: `"Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, serif`,
+    system: `-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif`,
+    kaiti: `"Kaiti SC", "STKaiti", "KaiTi", "楷体", serif`,
+    wenkai: `"LXGW WenKai", "霞鹜文楷", "PingFang SC", "Microsoft YaHei", sans-serif`
+  };
+  return map[state.readerFontFamily || "serif"] || map.serif;
 }
 
 function renderSettingsLabels() {
@@ -442,6 +456,12 @@ function renderSettingsLabels() {
 function renderBackgroundChoices() {
   document.querySelectorAll("[data-bg]").forEach((button) => {
     button.classList.toggle("active", button.dataset.bg === (state.readerBg || "white"));
+  });
+}
+
+function renderFontChoices() {
+  document.querySelectorAll("[data-font-family]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.fontFamily === (state.readerFontFamily || "serif"));
   });
 }
 
@@ -686,6 +706,7 @@ async function importLibraryFile(file) {
   }
   state.works = [...existingWorks.values()].map(normalizeWork);
   state.readerFontSize = nextState.readerFontSize || state.readerFontSize;
+  state.readerFontFamily = nextState.readerFontFamily || state.readerFontFamily;
   state.readerLineHeight = nextState.readerLineHeight || state.readerLineHeight;
   state.readerSideMargin = nextState.readerSideMargin || state.readerSideMargin;
   state.readerTurnMode = nextState.readerTurnMode || state.readerTurnMode;
@@ -764,6 +785,7 @@ function mergeLibraryState(localState, cloudState) {
   }
   merged.works = [...workMap.values()];
   merged.readerFontSize = localState.readerFontSize || cloudState.readerFontSize || defaultState.readerFontSize;
+  merged.readerFontFamily = localState.readerFontFamily || cloudState.readerFontFamily || defaultState.readerFontFamily;
   merged.readerLineHeight = localState.readerLineHeight || cloudState.readerLineHeight || defaultState.readerLineHeight;
   merged.readerSideMargin = localState.readerSideMargin || cloudState.readerSideMargin || defaultState.readerSideMargin;
   merged.readerTurnMode = localState.readerTurnMode || cloudState.readerTurnMode || defaultState.readerTurnMode;
@@ -1329,6 +1351,7 @@ function readerPageKey() {
     index,
     content.clientWidth,
     state.readerFontSize,
+    state.readerFontFamily,
     state.readerLineHeight,
     state.readerSideMargin,
     state.readerTurnMode
@@ -2149,6 +2172,14 @@ document.querySelectorAll("[data-stepper]").forEach((button) => {
     if (button.dataset.stepper === "margin") {
       state.readerSideMargin = Math.max(12, Math.min(32, (state.readerSideMargin || 20) + delta * 2));
     }
+    await saveState();
+    renderAll();
+  });
+});
+
+document.querySelectorAll("[data-font-family]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    state.readerFontFamily = button.dataset.fontFamily || "serif";
     await saveState();
     renderAll();
   });
