@@ -58,6 +58,39 @@ function allMatches(html, pattern) {
   return [...html.matchAll(pattern)].map((match) => textOnly(match[1])).filter(Boolean);
 }
 
+function ddHtmlByLabel(html, labels) {
+  const patterns = labels.map((label) => new RegExp(label, "i"));
+  for (const match of html.matchAll(/<dt[^>]*>([\s\S]*?)<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/gi)) {
+    const label = textOnly(match[1]).replace(/:$/, "").trim();
+    if (patterns.some((pattern) => pattern.test(label))) return match[2];
+  }
+  return "";
+}
+
+function tagsFromHtml(value = "") {
+  const linked = allMatches(value, /<a[^>]*>([\s\S]*?)<\/a>/gi);
+  if (linked.length) return linked;
+  return textOnly(value).split(/,\s*/).map((item) => item.trim()).filter(Boolean);
+}
+
+function textLengthFromHtml(value = "") {
+  return textOnly(value).replace(/\s/g, "").length;
+}
+
+function parseTitleParts(rawValue = "") {
+  const raw = textOnly(rawValue)
+    .replace(/\s*\|\s*Archive[\s\S]*$/i, "")
+    .replace(/\s*-\s*Archive of Our Own[\s\S]*$/i, "")
+    .replace(/\s*-\s*AO3[\s\S]*$/i, "");
+  const parts = raw.split(/\s+-\s+/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const author = parts[parts.length - 1];
+    const title = parts.slice(0, -1).filter((part) => !/^chapter\s+\d+/i.test(part)).join(" - ");
+    return { title: title || parts[0], author };
+  }
+  return { title: raw, author: "" };
+}
+
 function absoluteUrl(value, baseUrl) {
   if (!value || /^(https?:|data:|blob:)/i.test(value)) return value;
   if (value.startsWith("//")) return `https:${value}`;
@@ -88,25 +121,31 @@ function cleanWorkHtml(html, sourceUrl) {
 }
 
 function parseSourceWork(html, sourceUrl) {
+  const titleParts = parseTitleParts(firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i));
   const title = textOnly(firstMatch(html, /<h2[^>]+class=["'][^"']*title[^"']*heading[^"']*["'][^>]*>([\s\S]*?)<\/h2>/i))
-    || textOnly(firstMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i))
-    || textOnly(firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i)).replace(/\s+-\s+[\s\S]*$/i, "").replace(/\s*\|\s*Archive Site.*$/i, "")
+    || textOnly(firstMatch(html, /<h1[^>]+class=["'][^"']*title[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i))
+    || titleParts.title
     || "未命名作品";
   const author = textOnly(firstMatch(html, /<h3[^>]+class=["'][^"']*byline[^"']*heading[^"']*["'][^>]*>([\s\S]*?)<\/h3>/i))
-    || textOnly(firstMatch(html, /<[^>]+class=["'][^"']*byline[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i));
+    || textOnly(firstMatch(html, /<[^>]+class=["'][^"']*byline[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i))
+    || textOnly(firstMatch(html, /<a[^>]+rel=["']author["'][^>]*>([\s\S]*?)<\/a>/i))
+    || textOnly(firstMatch(html, /<meta[^>]+name=["']author["'][^>]+content=["']([^"']+)["'][^>]*>/i))
+    || textOnly(firstMatch(html, /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']author["'][^>]*>/i))
+    || titleParts.author;
   const summary = firstMatch(html, /<blockquote[^>]+class=["'][^"']*userstuff[^"']*summary[^"']*["'][^>]*>([\s\S]*?)<\/blockquote>/i)
     || firstMatch(html, /<div[^>]+class=["'][^"']*summary[^"']*["'][^>]*>[\s\S]*?<blockquote[^>]*>([\s\S]*?)<\/blockquote>/i);
-  const rating = textOnly(firstMatch(html, /<dd[^>]+class=["'][^"']*rating[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i));
-  const categories = allMatches(firstMatch(html, /<dd[^>]+class=["'][^"']*category[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i), /<a[^>]*>([\s\S]*?)<\/a>/gi);
-  const fandoms = allMatches(firstMatch(html, /<dd[^>]+class=["'][^"']*fandom[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i), /<a[^>]*>([\s\S]*?)<\/a>/gi);
-  const warnings = allMatches(firstMatch(html, /<dd[^>]+class=["'][^"']*warning[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i), /<a[^>]*>([\s\S]*?)<\/a>/gi);
-  const relationships = allMatches(firstMatch(html, /<dd[^>]+class=["'][^"']*relationship[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i), /<a[^>]*>([\s\S]*?)<\/a>/gi);
-  const characters = allMatches(firstMatch(html, /<dd[^>]+class=["'][^"']*character[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i), /<a[^>]*>([\s\S]*?)<\/a>/gi);
-  const freeforms = allMatches(firstMatch(html, /<dd[^>]+class=["'][^"']*freeform[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i), /<a[^>]*>([\s\S]*?)<\/a>/gi);
-  const words = textOnly(firstMatch(html, /<dd[^>]+class=["'][^"']*words[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i));
-  const chapters = textOnly(firstMatch(html, /<dd[^>]+class=["'][^"']*chapters[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i));
-  const status = textOnly(firstMatch(html, /<dd[^>]+class=["'][^"']*status[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i));
-  const language = textOnly(firstMatch(html, /<dd[^>]+class=["'][^"']*language[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i));
+  const rating = textOnly(firstMatch(html, /<dd[^>]+class=["'][^"']*rating[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i) || ddHtmlByLabel(html, ["rating", "分级"]));
+  const categories = tagsFromHtml(firstMatch(html, /<dd[^>]+class=["'][^"']*category[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i) || ddHtmlByLabel(html, ["category", "分类"]));
+  const fandoms = tagsFromHtml(firstMatch(html, /<dd[^>]+class=["'][^"']*fandom[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i) || ddHtmlByLabel(html, ["fandoms?", "原作"]));
+  const warnings = tagsFromHtml(firstMatch(html, /<dd[^>]+class=["'][^"']*warning[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i) || ddHtmlByLabel(html, ["archive warnings?", "warnings?", "警告"]));
+  const relationships = tagsFromHtml(firstMatch(html, /<dd[^>]+class=["'][^"']*relationship[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i) || ddHtmlByLabel(html, ["relationships?", "关系", "CP"]));
+  const characters = tagsFromHtml(firstMatch(html, /<dd[^>]+class=["'][^"']*character[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i) || ddHtmlByLabel(html, ["characters?", "角色"]));
+  const freeforms = tagsFromHtml(firstMatch(html, /<dd[^>]+class=["'][^"']*freeform[^"']*tags[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i) || ddHtmlByLabel(html, ["additional tags?", "freeforms?", "其他标签"]));
+  const words = textOnly(firstMatch(html, /<dd[^>]+class=["'][^"']*words[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i))
+    || textOnly(ddHtmlByLabel(html, ["words", "字数"]));
+  const chapters = textOnly(firstMatch(html, /<dd[^>]+class=["'][^"']*chapters[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i) || ddHtmlByLabel(html, ["chapters", "章节"]));
+  const status = textOnly(firstMatch(html, /<dd[^>]+class=["'][^"']*status[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i) || ddHtmlByLabel(html, ["status", "状态"]));
+  const language = textOnly(firstMatch(html, /<dd[^>]+class=["'][^"']*language[^"']*["'][^>]*>([\s\S]*?)<\/dd>/i) || ddHtmlByLabel(html, ["language", "语言"]));
   const contentHtml = cleanWorkHtml(html, sourceUrl);
 
   if (!contentHtml || contentHtml.length < 80) {
@@ -115,7 +154,7 @@ function parseSourceWork(html, sourceUrl) {
 
   return {
     title,
-    author,
+    author: author || "作者待补",
     sourceUrl,
     importedAt: new Date().toISOString(),
     summaryHtml: summary,
@@ -128,7 +167,7 @@ function parseSourceWork(html, sourceUrl) {
       relationships,
       characters,
       freeforms,
-      words,
+      words: words || `${textLengthFromHtml(contentHtml)} 字`,
       chapters,
       status,
       language
