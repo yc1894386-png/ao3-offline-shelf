@@ -649,7 +649,11 @@ function renderCloudPanel() {
   const signedIn = Boolean(cloudSession?.user);
   if (!supabase) {
     $("#cloudEmail").disabled = true;
+    $("#cloudPassword").disabled = true;
     $("#cloudLoginButton").classList.remove("hidden");
+    $("#cloudPasswordLoginButton").classList.remove("hidden");
+    $("#cloudSignupButton").classList.remove("hidden");
+    $("#cloudSetPasswordButton").classList.add("hidden");
     $("#cloudLogoutButton").classList.add("hidden");
     $("#cloudUploadButton").disabled = true;
     $("#cloudDownloadButton").disabled = true;
@@ -658,7 +662,11 @@ function renderCloudPanel() {
     return;
   }
   $("#cloudEmail").disabled = signedIn;
+  $("#cloudPassword").disabled = false;
   $("#cloudLoginButton").classList.toggle("hidden", signedIn);
+  $("#cloudPasswordLoginButton").classList.toggle("hidden", signedIn);
+  $("#cloudSignupButton").classList.toggle("hidden", signedIn);
+  $("#cloudSetPasswordButton").classList.toggle("hidden", !signedIn);
   $("#cloudLogoutButton").classList.toggle("hidden", !signedIn);
   $("#cloudUploadButton").disabled = !signedIn;
   $("#cloudDownloadButton").disabled = !signedIn;
@@ -1271,6 +1279,76 @@ $("#searchToggleButton").addEventListener("click", () => {
 $("#cloudPanelButton").addEventListener("click", () => {
   cloudPanelOpen = !cloudPanelOpen;
   renderAll();
+});
+
+async function finishCloudSignIn(session, message = "已登录云端。") {
+  cloudSession = session;
+  renderCloudPanel();
+  startCloudRealtime();
+  await loadCloudIntoLocal({ merge: true });
+  setCloudStatus(message);
+}
+
+function cloudCredentials() {
+  const email = $("#cloudEmail").value.trim();
+  const password = $("#cloudPassword").value;
+  if (!email) {
+    setCloudStatus("先输入邮箱。");
+    return null;
+  }
+  if (!password || password.length < 6) {
+    setCloudStatus("密码至少 6 位。");
+    return null;
+  }
+  return { email, password };
+}
+
+$("#cloudPasswordLoginButton").addEventListener("click", async () => {
+  if (!supabase) {
+    setCloudStatus("云端模块暂时没加载成功，先用本机导入和阅读。");
+    return;
+  }
+  const credentials = cloudCredentials();
+  if (!credentials) return;
+  setCloudStatus("正在密码登录……");
+  const { data, error } = await supabase.auth.signInWithPassword(credentials);
+  if (error) {
+    setCloudStatus(`密码登录失败：${error.message}`);
+    return;
+  }
+  await finishCloudSignIn(data.session, "已密码登录，实时同步已开启。");
+});
+
+$("#cloudSignupButton").addEventListener("click", async () => {
+  if (!supabase) {
+    setCloudStatus("云端模块暂时没加载成功，先用本机导入和阅读。");
+    return;
+  }
+  const credentials = cloudCredentials();
+  if (!credentials) return;
+  setCloudStatus("正在注册密码账号……");
+  const { data, error } = await supabase.auth.signUp(credentials);
+  if (error) {
+    setCloudStatus(`注册失败：${error.message}`);
+    return;
+  }
+  if (data.session) {
+    await finishCloudSignIn(data.session, "已注册并登录，实时同步已开启。");
+  } else {
+    setCloudStatus("注册邮件已发送。点邮件确认后，就可以用密码登录。");
+  }
+});
+
+$("#cloudSetPasswordButton").addEventListener("click", async () => {
+  if (!supabase || !cloudSession?.user) return;
+  const password = $("#cloudPassword").value;
+  if (!password || password.length < 6) {
+    setCloudStatus("输入至少 6 位的新密码。");
+    return;
+  }
+  setCloudStatus("正在设置密码……");
+  const { error } = await supabase.auth.updateUser({ password });
+  setCloudStatus(error ? `设置失败：${error.message}` : "密码已设置，以后可以直接密码登录。");
 });
 
 $("#cloudLoginButton").addEventListener("click", async () => {
