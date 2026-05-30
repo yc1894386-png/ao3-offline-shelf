@@ -7,7 +7,7 @@
     <title>离线书架</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=24-clean-manage-info-20260530" />
+    <link rel="stylesheet" href="./styles.css?v=25-apple-books-reader-20260530" />
   </head>
   <body>
     <div class="app-shell">
@@ -146,7 +146,7 @@
 
     <div class="reader-console hidden" id="readerConsole">
       <div class="reader-console-top">
-        <button class="console-text-button" id="consoleBackButton" type="button">← 返回</button>
+        <button class="console-text-button" id="consoleBackButton" type="button">‹</button>
       </div>
       <div class="reader-console-bottom">
         <div class="console-progress-row">
@@ -155,16 +155,16 @@
           <button class="console-text-button chapter-jump" id="consoleNextChapter" type="button">下一章</button>
         </div>
         <div class="console-action-row">
-          <button class="console-icon-button" id="consoleLibraryButton" type="button">目录</button>
-          <button class="console-icon-button" id="consoleSettingsButton" type="button">设置</button>
-          <button class="console-icon-button" id="consoleBackgroundButton" type="button">背景</button>
+          <button class="console-icon-button" id="consoleLibraryButton" type="button"><span>目录</span><b>☰</b></button>
+          <button class="console-icon-button" id="consoleSettingsButton" type="button"><span>阅读设置</span><b>AA</b></button>
+          <button class="console-icon-button" id="consoleBackgroundButton" type="button"><span>背景</span><b>◐</b></button>
         </div>
       </div>
     </div>
 
     <dialog id="readerSettingsDialog">
       <form method="dialog" class="dialog-card compact-settings">
-        <h2>阅读设置</h2>
+        <h2>AA</h2>
         <label for="settingsTurnMode">翻页方式</label>
         <select id="settingsTurnMode">
           <option value="tap">点击翻页</option>
@@ -322,6 +322,6 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=24-clean-manage-info-20260530" type="module"></script>
+    <script src="./app.js?v=25-apple-books-reader-20260530" type="module"></script>
   </body>
 </html>

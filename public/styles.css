@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color-scheme: light;
   --bg: #fbfbfb;
   --panel: #ffffff;
@@ -681,61 +681,105 @@ body.cloud-open .cloud-section {
 .reader-console-top,
 .reader-console-bottom {
   position: absolute;
-  right: 0;
-  left: 0;
+  right: 16px;
+  left: 16px;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 18px;
-  background: color-mix(in srgb, var(--paper) 58%, transparent);
-  backdrop-filter: blur(16px);
   pointer-events: auto;
 }
 
 .reader-console-top {
-  top: 0;
+  top: max(12px, env(safe-area-inset-top));
   justify-content: flex-start;
+  padding: 0;
+  background: transparent;
 }
 
 .reader-console-bottom {
-  bottom: 0;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  left: 50%;
+  right: auto;
+  width: min(86vw, 420px);
+  transform: translateX(-50%);
   display: grid;
-  gap: 10px;
-  padding: 12px 18px max(12px, env(safe-area-inset-bottom));
-  background: color-mix(in srgb, var(--reader-bg) 76%, transparent);
-  backdrop-filter: blur(18px);
+  gap: 8px;
+  padding: 0;
+  background: transparent;
 }
 
 .console-progress-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-height: 58px;
+  padding: 0 14px;
+  border-radius: 28px;
+  background: color-mix(in srgb, #111 88%, transparent);
+  color: #fff;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(24px) saturate(1.25);
 }
 
 .console-progress-row input {
   padding: 0;
+  accent-color: #fff;
 }
 
 .console-action-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
 .console-text-button,
 .console-icon-button {
-  min-height: 34px;
-  padding: 0 10px;
+  min-height: 48px;
+  padding: 0 14px;
   border: 0;
-  background: transparent;
-  box-shadow: none;
-  color: var(--muted);
-  font-size: 0.9rem;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--paper) 84%, transparent);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.10);
+  color: var(--text);
+  font-size: 1rem;
+  backdrop-filter: blur(22px) saturate(1.25);
 }
 
 .console-icon-button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   min-width: 38px;
+  text-align: left;
+}
+
+.console-icon-button b {
+  color: var(--text);
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.console-text-button {
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.console-progress-row .console-text-button {
+  width: auto;
+  height: auto;
+  min-height: 0;
+  border-radius: 0;
+  background: transparent;
+  color: color-mix(in srgb, #fff 86%, transparent);
+  box-shadow: none;
+  font-size: 0.82rem;
+  backdrop-filter: none;
 }
 
 .chapter-jump[hidden] {
@@ -756,7 +800,36 @@ body.cloud-open .cloud-section {
 }
 
 .compact-settings {
-  max-width: 360px;
+  width: min(92vw, 390px);
+  max-width: 390px;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.18);
+}
+
+.compact-settings h2 {
+  margin: 0;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+  font-size: 1.05rem;
+}
+
+.compact-settings > label {
+  padding: 14px 18px 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.compact-settings select,
+.compact-settings .ghost-button,
+.compact-settings menu {
+  margin: 0 14px 14px;
 }
 
 .reading-bar input {
@@ -783,16 +856,38 @@ body.cloud-open .cloud-section {
 
 .background-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  padding: 14px;
 }
 
 .bg-choice {
-  min-height: 52px;
+  min-height: 48px;
   border: 1px solid var(--line);
-  background: var(--panel-strong);
+  border-radius: 999px;
   color: var(--text);
   box-shadow: none;
+  font-size: 0;
+}
+
+.bg-choice[data-bg="white"] {
+  background: #fff;
+}
+
+.bg-choice[data-bg="light"] {
+  background: #f0f0f0;
+}
+
+.bg-choice[data-bg="medium"] {
+  background: #a0a0a0;
+}
+
+.bg-choice[data-bg="darkgray"] {
+  background: #333;
+}
+
+.bg-choice[data-bg="black"] {
+  background: #000;
 }
 
 .chapter-dialog-card {
@@ -1117,10 +1212,10 @@ dialog::backdrop {
 
   #readerSettingsDialog,
   #backgroundDialog {
-    width: 100vw;
+    width: min(92vw, 390px);
     max-width: none;
-    margin: auto 0 0;
-    border-radius: 24px 24px 0 0;
+    margin: auto auto max(16px, env(safe-area-inset-bottom));
+    border-radius: 24px;
   }
 
   .chapter-dialog-card {
@@ -1471,7 +1566,9 @@ body.shelf-dragging {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
 }
 
 .stepper-row > span {
@@ -1482,21 +1579,25 @@ body.shelf-dragging {
 
 .stepper-control {
   display: grid;
-  grid-template-columns: 44px 72px 44px;
+  grid-template-columns: 46px 78px 46px;
   align-items: center;
+  overflow: hidden;
   border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
 }
 
 .stepper-control button {
-  min-height: 40px;
+  min-height: 42px;
   border: 0;
   border-radius: 0;
-  background: var(--panel-strong);
+  background: transparent;
   color: var(--text);
+  font-size: 1.15rem;
 }
 
 .stepper-control output {
-  min-height: 40px;
+  min-height: 42px;
   display: grid;
   place-items: center;
   border-inline: 1px solid var(--line);
@@ -1504,31 +1605,32 @@ body.shelf-dragging {
 }
 
 .background-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(5, 1fr);
 }
 
 .bg-choice {
   position: relative;
-  min-height: 54px;
-  background: var(--panel-strong);
+  min-height: 48px;
   color: var(--text);
 }
 
 .bg-choice.active::after {
   content: "✓";
   position: absolute;
-  right: 10px;
-  top: 8px;
+  inset: 0;
+  display: grid;
+  place-items: center;
   font-size: 0.85rem;
+  color: currentColor;
 }
 
 .console-icon-button,
 .console-text-button {
-  border-radius: 2px;
+  border-radius: 20px;
 }
 
 .reader-console-bottom {
-  background: color-mix(in srgb, var(--reader-bg) 88%, transparent);
+  background: transparent;
 }
 
 @media (min-width: 880px) {
@@ -1560,3 +1662,4 @@ body.shelf-dragging {
     border-radius: 0 2px 2px 0;
   }
 }
+
