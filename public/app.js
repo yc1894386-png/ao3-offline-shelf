@@ -29,6 +29,7 @@ let db;
 let noteTimer;
 let progressTimer;
 let snapTimer;
+let persistTimer;
 let cloudTimer;
 let pendingJump = null;
 let controlsOpen = false;
@@ -657,8 +658,9 @@ function turnPage(delta) {
       changeChapter(-1);
       return;
     }
-    content.scrollBy({ top: content.clientHeight * 0.86 * delta, behavior: "smooth" });
-    persistProgress();
+    content.scrollBy({ top: content.clientHeight * 0.86 * delta, behavior: "auto" });
+    updateProgressBar();
+    queueProgressPersist();
     return;
   }
   const step = content.clientWidth;
@@ -672,8 +674,9 @@ function turnPage(delta) {
     return;
   }
   const next = Math.max(0, Math.min(max, content.scrollLeft + step * delta));
-  content.scrollTo({ left: next, behavior: "smooth" });
-  persistProgress();
+  content.scrollTo({ left: next, behavior: "auto" });
+  updateProgressBar();
+  queueProgressPersist();
 }
 
 function setControlsOpen(open) {
@@ -689,8 +692,13 @@ function snapToNearestPage() {
   const max = Math.max(0, content.scrollWidth - content.clientWidth);
   const target = Math.max(0, Math.min(max, Math.round(content.scrollLeft / step) * step));
   if (Math.abs(target - content.scrollLeft) > 2) {
-    content.scrollTo({ left: target, behavior: "smooth" });
+    content.scrollTo({ left: target, behavior: "auto" });
   }
+}
+
+function queueProgressPersist(delay = 700) {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(persistProgress, delay);
 }
 
 function updateProgressBar() {
@@ -1156,10 +1164,10 @@ $("#workContent").addEventListener("click", (event) => {
 $("#workContent").addEventListener("scroll", () => {
   updateProgressBar();
   clearTimeout(progressTimer);
-  progressTimer = setTimeout(persistProgress, 400);
+  progressTimer = setTimeout(persistProgress, 900);
   clearTimeout(snapTimer);
   if (state.readerTurnMode !== "scroll") {
-    snapTimer = setTimeout(snapToNearestPage, 160);
+    snapTimer = setTimeout(snapToNearestPage, 90);
   }
 }, { passive: true });
 
@@ -1167,7 +1175,7 @@ window.addEventListener("scroll", () => {
   if (!activeWork()) return;
   updateProgressBar();
   clearTimeout(progressTimer);
-  progressTimer = setTimeout(persistProgress, 400);
+  progressTimer = setTimeout(persistProgress, 900);
 }, { passive: true });
 
 function openReaderDialog() {

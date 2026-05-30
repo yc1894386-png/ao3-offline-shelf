@@ -1020,7 +1020,7 @@ dialog::backdrop {
     padding: max(42px, env(safe-area-inset-top)) var(--reader-side-margin) max(42px, env(safe-area-inset-bottom));
     touch-action: manipulation;
     user-select: text;
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
     scrollbar-width: none;
     background: var(--reader-bg);
   }
