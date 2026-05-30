@@ -7,6 +7,17 @@ const SUPABASE_KEY = "sb_publishable_hh04jm0Nqp3_Jq-3FTcs5w_FbuaSO0v";
 
 const $ = (selector) => document.querySelector(selector);
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+const CLIENT_ID = (() => {
+  try {
+    const existing = localStorage.getItem("pocket-reading-vault-client-id");
+    if (existing) return existing;
+    const next = uid();
+    localStorage.setItem("pocket-reading-vault-client-id", next);
+    return next;
+  } catch {
+    return uid();
+  }
+})();
 
 const defaultState = {
   theme: "light",
@@ -47,6 +58,8 @@ let suppressShelfClick = false;
 let workDrag = null;
 let cloudSession = null;
 let syncingCloud = false;
+let cloudRealtimeChannel = null;
+let cloudRealtimeTimer = null;
 let supabase;
 
 function openDb() {
@@ -708,6 +721,8 @@ async function saveCloudNow({ silent = false } = {}) {
   if (!silent) setCloudStatus("正在上传云端……");
   try {
     const payload = cloneLibraryState(state);
+    payload._lastWriter = CLIENT_ID;
+    payload._lastWriterAt = new Date().toISOString();
     const { error } = await supabase.from("library_states").upsert({
       user_id: cloudSession.user.id,
       state: payload,
@@ -726,6 +741,53 @@ function queueCloudSave() {
   if (!cloudSession?.user || syncingCloud) return;
   clearTimeout(cloudTimer);
   cloudTimer = setTimeout(() => saveCloudNow({ silent: true }), 1200);
+}
+
+function stopCloudRealtime() {
+  clearTimeout(cloudRealtimeTimer);
+  cloudRealtimeTimer = null;
+  if (cloudRealtimeChannel && supabase) {
+    supabase.removeChannel(cloudRealtimeChannel);
+  }
+  cloudRealtimeChannel = null;
+}
+
+function startCloudRealtime() {
+  stopCloudRealtime();
+  if (!supabase || !cloudSession?.user) return;
+  cloudRealtimeChannel = supabase
+    .channel(`library-state-${cloudSession.user.id}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "library_states",
+        filter: `user_id=eq.${cloudSession.user.id}`
+      },
+      (payload) => {
+        const remoteState = payload.new?.state;
+        if (!remoteState || remoteState._lastWriter === CLIENT_ID || syncingCloud) return;
+        clearTimeout(cloudRealtimeTimer);
+        cloudRealtimeTimer = setTimeout(async () => {
+          try {
+            syncingCloud = true;
+            state = mergeLibraryState(state, cloneLibraryState(remoteState));
+            await dbSet("library", state);
+            syncingCloud = false;
+            renderAll();
+            setCloudStatus(`已自动同步：${new Date().toLocaleTimeString()}`);
+          } catch (error) {
+            syncingCloud = false;
+            setCloudStatus(`自动同步失败：${error.message}`);
+          }
+        }, 350);
+      }
+    )
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") setCloudStatus("实时同步已开启。");
+      if (status === "CHANNEL_ERROR") setCloudStatus("实时同步暂不可用，请确认 Supabase Realtime 已开启。");
+    });
 }
 
 async function loadCloudIntoLocal({ merge = true } = {}) {
@@ -751,8 +813,10 @@ async function refreshCloudSession({ initial = false } = {}) {
   renderCloudPanel();
   if (cloudSession?.user) {
     setCloudStatus("云端已连接。");
+    startCloudRealtime();
     if (initial) await loadCloudIntoLocal({ merge: true });
   } else {
+    stopCloudRealtime();
     setCloudStatus("登录后可同步手机和电脑。");
   }
 }
@@ -1167,8 +1231,13 @@ async function boot() {
     supabase.auth.onAuthStateChange(async (_event, session) => {
       cloudSession = session;
       renderCloudPanel();
-      if (session?.user) await loadCloudIntoLocal({ merge: true });
-      else setCloudStatus("已退出云端。");
+      if (session?.user) {
+        startCloudRealtime();
+        await loadCloudIntoLocal({ merge: true });
+      } else {
+        stopCloudRealtime();
+        setCloudStatus("已退出云端。");
+      }
     });
   } else {
     renderCloudPanel();
@@ -1224,6 +1293,7 @@ $("#cloudLoginButton").addEventListener("click", async () => {
 
 $("#cloudLogoutButton").addEventListener("click", async () => {
   if (!supabase) return;
+  stopCloudRealtime();
   await supabase.auth.signOut();
   cloudSession = null;
   renderCloudPanel();
