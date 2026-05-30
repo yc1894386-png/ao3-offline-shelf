@@ -1027,7 +1027,10 @@ dialog::backdrop {
 
   :root.turn-swipe .work-content,
   :root.turn-both .work-content {
-    touch-action: pan-x;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    touch-action: none;
+    -webkit-overflow-scrolling: auto;
   }
 
   :root.turn-tap .work-content {
@@ -1326,8 +1329,45 @@ dialog,
   font-size: 13px;
 }
 
+.mini-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.mini-tag-row span {
+  border: 1px solid var(--line);
+  background: var(--soft);
+  color: var(--muted);
+  padding: 2px 5px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .tag {
   border-radius: 2px;
+}
+
+.manage-card {
+  width: min(92vw, 420px);
+}
+
+.inline-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.manage-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.manage-actions button,
+.inline-action-row button {
+  min-height: 44px;
 }
 
 .stepper-row {

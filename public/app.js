@@ -31,11 +31,19 @@ let progressTimer;
 let snapTimer;
 let persistTimer;
 let pageCache = { key: "", step: 1, max: 0, total: 1, current: 1 };
+let scrollRaf = 0;
+let touchStart = null;
+let suppressNextClick = false;
 let cloudTimer;
 let pendingJump = null;
 let controlsOpen = false;
 let importDrawerOpen = false;
 let cloudPanelOpen = false;
+let managedWorkId = null;
+let managedFolderId = null;
+let longPressTimer = null;
+let longPressPoint = null;
+let suppressShelfClick = false;
 let cloudSession = null;
 let syncingCloud = false;
 let supabase;
@@ -107,6 +115,7 @@ function normalizeWork(work) {
   work.reading ||= { chapterIndex: 0, ratio: 0 };
   work.reading.chapterIndex ||= 0;
   work.reading.ratio ||= 0;
+  work.sortOrder ??= Date.parse(work.importedAt || work.updatedAt || "") || Date.now();
   return work;
 }
 
@@ -145,7 +154,7 @@ function filteredWorks() {
       ].join(" ").toLowerCase();
       return haystack.includes(query);
     })
-    .sort((a, b) => new Date(b.importedAt) - new Date(a.importedAt));
+    .sort((a, b) => (Number(b.sortOrder || 0) - Number(a.sortOrder || 0)) || (new Date(b.importedAt) - new Date(a.importedAt)));
 }
 
 function renderFolders() {
@@ -173,11 +182,13 @@ function renderWorks() {
     const ratio = Math.max(0, Math.min(1, Number(work.reading?.ratio || 0)));
     const progress = chapters ? Math.round(((chapterIndex + ratio) / chapters) * 100) : Math.round(ratio * 100);
     const progressText = progress > 0 ? `进度：${Math.min(100, progress)}%` : "未读";
+    const customTags = (work.customTags || []).slice(0, 3);
     return `
       <button class="work-card ${state.selectedWorkId === work.id ? "active" : ""}" data-work="${work.id}">
         <h3 class="work-title-line"><span>${escapeHtml(work.title)}</span><small>${status}</small><b>›</b></h3>
         <p>${escapeHtml(work.author || "未知作者")} · ${escapeHtml(rel)}</p>
         <p>${progressText} · ${chapters} 章 · ${escapeHtml(work.metadata?.words || "字数未知")}</p>
+        ${customTags.length ? `<div class="mini-tag-row">${customTags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
       </button>
     `;
   }).join("") : `<div class="empty-state compact-empty"><p>这里还没有作品。</p></div>`;
@@ -341,6 +352,130 @@ function downloadTextFile(filename, content, type = "application/json") {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function safeFilename(name = "work") {
+  return String(name).replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "work";
+}
+
+function workById(id) {
+  return state.works.find((work) => work.id === id);
+}
+
+function downloadWork(work) {
+  const chapters = getChapters(work);
+  const chapterHtml = chapters.map((chapter, index) => `
+    <section>
+      <h2>${escapeHtml(chapter.title || `第 ${index + 1} 章`)}</h2>
+      ${chapter.html || ""}
+    </section>
+  `).join("\n");
+  const doc = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(work.title || "作品")}</title>
+  <style>
+    body{max-width:760px;margin:0 auto;padding:32px 20px;font-family:Georgia,"Songti SC",serif;line-height:1.8;color:#111}
+    h1,h2{line-height:1.35}
+    .meta{color:#666;border-bottom:1px solid #eee;padding-bottom:18px;margin-bottom:28px}
+    img{max-width:100%;height:auto}
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(work.title || "未命名作品")}</h1>
+  <p class="meta">${escapeHtml(work.author || "未知作者")} · ${escapeHtml(work.metadata?.words || "")}</p>
+  ${work.summaryHtml ? `<section><h2>简介</h2>${work.summaryHtml}</section>` : ""}
+  ${chapterHtml}
+</body>
+</html>`;
+  downloadTextFile(`${safeFilename(work.title)}.html`, doc, "text/html;charset=utf-8");
+}
+
+async function deleteWorkById(id) {
+  const work = workById(id);
+  if (!work || !confirm(`删除《${work.title}》？`)) return;
+  state.works = state.works.filter((item) => item.id !== id);
+  if (state.selectedWorkId === id) state.selectedWorkId = null;
+  await saveState();
+  renderAll();
+}
+
+function orderedVisibleWorks() {
+  const works = filteredWorks();
+  if (works.some((work) => work.sortOrder == null)) {
+    works.forEach((work, index) => {
+      work.sortOrder = Date.now() - index;
+    });
+  }
+  return works;
+}
+
+async function moveWorkInList(id, delta) {
+  const works = orderedVisibleWorks();
+  const index = works.findIndex((work) => work.id === id);
+  const targetIndex = index + delta;
+  if (index < 0 || targetIndex < 0 || targetIndex >= works.length) return;
+  const current = works[index];
+  const target = works[targetIndex];
+  const currentOrder = Number(current.sortOrder || 0);
+  current.sortOrder = Number(target.sortOrder || 0);
+  target.sortOrder = currentOrder;
+  current.updatedAt = new Date().toISOString();
+  target.updatedAt = current.updatedAt;
+  await saveState();
+  renderAll();
+  openWorkManageDialog(id);
+}
+
+function refreshWorkManageButtons() {
+  const works = orderedVisibleWorks();
+  const index = works.findIndex((work) => work.id === managedWorkId);
+  $("#manageMoveUpButton").disabled = index <= 0;
+  $("#manageMoveDownButton").disabled = index < 0 || index >= works.length - 1;
+}
+
+function openWorkManageDialog(id) {
+  const work = workById(id);
+  if (!work) return;
+  managedWorkId = id;
+  $("#manageWorkTitle").textContent = `整理《${work.title}》`;
+  $("#manageTagInput").value = "";
+  refreshWorkManageButtons();
+  if (!$("#workManageDialog").open) $("#workManageDialog").showModal();
+}
+
+function openFolderManageDialog(id) {
+  const folder = state.folders.find((item) => item.id === id);
+  if (!folder) return;
+  managedFolderId = id;
+  const locked = id === "all" || id === "unfiled";
+  $("#manageFolderTitle").textContent = `整理「${folder.name}」`;
+  $("#manageFolderHint").textContent = locked ? "这个是系统文件夹，不能删除。" : "删除后，里面的作品会移动到“未分类”。";
+  $("#manageDeleteFolderButton").disabled = locked;
+  if (!$("#folderManageDialog").open) $("#folderManageDialog").showModal();
+}
+
+function startLongPress(event, callback) {
+  clearTimeout(longPressTimer);
+  longPressPoint = { x: event.clientX, y: event.clientY };
+  longPressTimer = setTimeout(() => {
+    suppressShelfClick = true;
+    callback();
+  }, 560);
+}
+
+function cancelLongPress() {
+  clearTimeout(longPressTimer);
+  longPressPoint = null;
+}
+
+function cancelLongPressOnMove(event) {
+  if (!longPressPoint) return;
+  if (Math.abs(event.clientX - longPressPoint.x) > 8 || Math.abs(event.clientY - longPressPoint.y) > 8) {
+    cancelLongPress();
+  }
 }
 
 function exportLibrary() {
@@ -520,6 +655,7 @@ async function addWork(work) {
     bookmarks: existing?.bookmarks || [],
     highlights: existing?.highlights || [],
     reading: existing?.reading || { chapterIndex: 0, ratio: 0 },
+    sortOrder: existing?.sortOrder || Date.now(),
     ...work,
     importedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -726,6 +862,19 @@ function syncPageFromScroll() {
   const content = $("#workContent");
   const metrics = refreshPageCache();
   pageCache.current = Math.min(metrics.total, Math.max(1, Math.round(content.scrollLeft / metrics.step) + 1));
+}
+
+function scheduleReaderScrollUpdate() {
+  if (scrollRaf) return;
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0;
+    syncPageFromScroll();
+    updateProgressBar();
+  });
+}
+
+function canUseSwipeTurn() {
+  return isPagedMode() && (state.readerTurnMode === "swipe" || state.readerTurnMode === "both");
 }
 
 function setControlsOpen(open) {
@@ -981,21 +1130,61 @@ $("#cloudDownloadButton").addEventListener("click", async () => {
 $("#folderList").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-folder]");
   if (!button) return;
+  if (suppressShelfClick) {
+    suppressShelfClick = false;
+    return;
+  }
   state.selectedFolder = button.dataset.folder;
   state.selectedWorkId = null;
   await saveState();
   renderAll();
 });
 
+$("#folderList").addEventListener("pointerdown", (event) => {
+  const button = event.target.closest("[data-folder]");
+  if (!button) return;
+  startLongPress(event, () => openFolderManageDialog(button.dataset.folder));
+});
+$("#folderList").addEventListener("pointermove", cancelLongPressOnMove);
+$("#folderList").addEventListener("pointerup", cancelLongPress);
+$("#folderList").addEventListener("pointerleave", cancelLongPress);
+$("#folderList").addEventListener("pointercancel", cancelLongPress);
+$("#folderList").addEventListener("contextmenu", (event) => {
+  const button = event.target.closest("[data-folder]");
+  if (!button) return;
+  event.preventDefault();
+  openFolderManageDialog(button.dataset.folder);
+});
+
 $("#workList").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-work]");
   if (!button) return;
+  if (suppressShelfClick) {
+    suppressShelfClick = false;
+    return;
+  }
   state.selectedWorkId = button.dataset.work;
   const work = activeWork();
   pendingJump = work?.reading?.ratio || 0;
   requestReadingFullscreen();
   await saveState();
   renderAll();
+});
+
+$("#workList").addEventListener("pointerdown", (event) => {
+  const button = event.target.closest("[data-work]");
+  if (!button) return;
+  startLongPress(event, () => openWorkManageDialog(button.dataset.work));
+});
+$("#workList").addEventListener("pointermove", cancelLongPressOnMove);
+$("#workList").addEventListener("pointerup", cancelLongPress);
+$("#workList").addEventListener("pointerleave", cancelLongPress);
+$("#workList").addEventListener("pointercancel", cancelLongPress);
+$("#workList").addEventListener("contextmenu", (event) => {
+  const button = event.target.closest("[data-work]");
+  if (!button) return;
+  event.preventDefault();
+  openWorkManageDialog(button.dataset.work);
 });
 
 $("#searchInput").addEventListener("input", renderWorks);
@@ -1050,9 +1239,47 @@ $("#noteInput").addEventListener("input", () => {
 
 $("#deleteWorkButton").addEventListener("click", async () => {
   const work = activeWork();
-  if (!work || !confirm(`删除《${work.title}》？`)) return;
-  state.works = state.works.filter((item) => item.id !== work.id);
-  state.selectedWorkId = null;
+  if (!work) return;
+  await deleteWorkById(work.id);
+});
+
+$("#manageAddTagButton").addEventListener("click", async () => {
+  const work = workById(managedWorkId);
+  const tag = $("#manageTagInput").value.trim();
+  if (!work || !tag) return;
+  normalizeWork(work);
+  if (!work.customTags.includes(tag)) work.customTags.push(tag);
+  work.updatedAt = new Date().toISOString();
+  await saveState();
+  $("#manageTagInput").value = "";
+  renderAll();
+  openWorkManageDialog(work.id);
+});
+
+$("#manageMoveUpButton").addEventListener("click", () => moveWorkInList(managedWorkId, -1));
+$("#manageMoveDownButton").addEventListener("click", () => moveWorkInList(managedWorkId, 1));
+
+$("#manageDownloadButton").addEventListener("click", () => {
+  const work = workById(managedWorkId);
+  if (work) downloadWork(work);
+});
+
+$("#manageDeleteWorkButton").addEventListener("click", async () => {
+  const id = managedWorkId;
+  $("#workManageDialog").close();
+  await deleteWorkById(id);
+});
+
+$("#manageDeleteFolderButton").addEventListener("click", async () => {
+  const folder = state.folders.find((item) => item.id === managedFolderId);
+  if (!folder || folder.id === "all" || folder.id === "unfiled") return;
+  if (!confirm(`删除文件夹「${folder.name}」？里面的作品会移动到“未分类”。`)) return;
+  state.works.forEach((work) => {
+    if ((work.folderId || "unfiled") === folder.id) work.folderId = "unfiled";
+  });
+  state.folders = state.folders.filter((item) => item.id !== folder.id);
+  if (state.selectedFolder === folder.id) state.selectedFolder = "all";
+  $("#folderManageDialog").close();
   await saveState();
   renderAll();
 });
@@ -1191,6 +1418,10 @@ document.querySelectorAll("[data-bg]").forEach((button) => {
 
 $("#workContent").addEventListener("click", (event) => {
   if (!activeWork()) return;
+  if (suppressNextClick) {
+    suppressNextClick = false;
+    return;
+  }
   const selection = window.getSelection();
   if (selection && !selection.isCollapsed) return;
   if (!isPagedMode()) {
@@ -1208,9 +1439,41 @@ $("#workContent").addEventListener("click", (event) => {
   else if (x > 0.75) turnPage(1);
 });
 
+$("#workContent").addEventListener("touchstart", (event) => {
+  if (!activeWork() || !canUseSwipeTurn() || event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  touchStart = { x: touch.clientX, y: touch.clientY, at: Date.now(), moved: false };
+}, { passive: true });
+
+$("#workContent").addEventListener("touchmove", (event) => {
+  if (!touchStart || !canUseSwipeTurn() || event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  const dx = touch.clientX - touchStart.x;
+  const dy = touch.clientY - touchStart.y;
+  if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+    touchStart.moved = true;
+    event.preventDefault();
+  }
+}, { passive: false });
+
+$("#workContent").addEventListener("touchend", (event) => {
+  if (!touchStart || !canUseSwipeTurn()) {
+    touchStart = null;
+    return;
+  }
+  const touch = event.changedTouches[0];
+  const dx = touch.clientX - touchStart.x;
+  const dy = touch.clientY - touchStart.y;
+  const elapsed = Date.now() - touchStart.at;
+  const isSwipe = Math.abs(dx) >= 42 && Math.abs(dx) > Math.abs(dy) * 1.2 && elapsed < 700;
+  touchStart = null;
+  if (!isSwipe) return;
+  suppressNextClick = true;
+  turnPage(dx < 0 ? 1 : -1);
+}, { passive: true });
+
 $("#workContent").addEventListener("scroll", () => {
-  syncPageFromScroll();
-  updateProgressBar();
+  scheduleReaderScrollUpdate();
   clearTimeout(progressTimer);
   progressTimer = setTimeout(persistProgress, 900);
   clearTimeout(snapTimer);
